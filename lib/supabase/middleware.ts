@@ -1,12 +1,20 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 import { mergeCookieOptions } from "@/lib/supabase/cookie-options";
+import { getSupabaseUrlAndAnonKey } from "@/lib/supabase/public-env";
 
 export async function updateSession(request: NextRequest) {
   const response = NextResponse.next({ request });
+  const env = getSupabaseUrlAndAnonKey();
+  if (!env) {
+    console.error(
+      "[Supabase] Missing URL or public key. Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY or NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY (Vercel Marketplace)."
+    );
+    return response;
+  }
   const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    env.url,
+    env.anonKey,
     {
       cookies: {
         getAll() {

@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
+import { getSupabaseProjectUrl } from "@/lib/supabase/public-env";
 
 /**
  * Server-only Supabase client with service_role key.
@@ -6,10 +7,10 @@ import { createClient } from "@supabase/supabase-js";
  * Never expose this client or the service role key to the browser.
  */
 export function createServerSupabaseAdmin() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const url = getSupabaseProjectUrl();
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !serviceRoleKey) {
-    throw new Error("NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required for admin client");
+    throw new Error("NEXT_PUBLIC_SUPABASE_URL (or SUPABASE_URL) and SUPABASE_SERVICE_ROLE_KEY are required for admin client");
   }
   return createClient(url, serviceRoleKey, { auth: { autoRefreshToken: false, persistSession: false } });
 }

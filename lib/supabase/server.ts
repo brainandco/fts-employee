@@ -1,12 +1,19 @@
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 import { createServerSupabaseAdmin } from "@/lib/supabase/admin";
+import { getSupabaseUrlAndAnonKey } from "@/lib/supabase/public-env";
 
 export async function createServerSupabaseClient() {
+  const env = getSupabaseUrlAndAnonKey();
+  if (!env) {
+    throw new Error(
+      "Missing Supabase env: NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY or NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY"
+    );
+  }
   const cookieStore = await cookies();
   return createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    env.url,
+    env.anonKey,
     {
       cookies: {
         getAll() {
