@@ -9,6 +9,7 @@ export function EmployeePortalChrome({
   navSections,
   displayName,
   email,
+  avatarUrl,
   roleBadge,
   unreadNotifications,
   showOpenAdmin,
@@ -18,6 +19,7 @@ export function EmployeePortalChrome({
   navSections: EmployeeNavSection[];
   displayName: string;
   email: string | null;
+  avatarUrl?: string | null;
   roleBadge: string;
   unreadNotifications: number;
   showOpenAdmin: boolean;
@@ -41,6 +43,7 @@ export function EmployeePortalChrome({
         sections={navSections}
         displayName={displayName}
         email={email}
+        avatarUrl={avatarUrl}
         mobileOpen={mobileOpen}
         onCloseMobile={() => setMobileOpen(false)}
       />
@@ -56,6 +59,9 @@ export function EmployeePortalChrome({
 
       <div className="fts-dashboard-column">
         <EmployeeTopBar
+          displayName={displayName}
+          email={email}
+          avatarUrl={avatarUrl}
           unreadNotifications={unreadNotifications}
           onOpenMenu={() => setMobileOpen(true)}
           showOpenAdmin={showOpenAdmin}

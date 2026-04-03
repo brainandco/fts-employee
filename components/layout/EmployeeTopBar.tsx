@@ -1,9 +1,9 @@
 "use client";
 
-import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { NotificationBellDropdown } from "@/components/notifications/NotificationBellDropdown";
+import { UserAvatar } from "@/components/profile/UserAvatar";
 
 const TITLE_MAP: Record<string, string> = {
   "/dashboard": "Dashboard",
@@ -20,6 +20,7 @@ const TITLE_MAP: Record<string, string> = {
   "/dashboard/notifications": "Notifications",
   "/tasks": "My tasks",
   "/leave": "Leave",
+  "/settings/profile": "Profile settings",
 };
 
 function titleCaseSegment(s: string) {
@@ -50,12 +51,18 @@ function getPageTitle(pathname: string): string {
 }
 
 export function EmployeeTopBar({
+  displayName,
+  email,
+  avatarUrl,
   unreadNotifications,
   onOpenMenu,
   showOpenAdmin,
   adminPortalUrl,
   roleBadge,
 }: {
+  displayName: string;
+  email: string | null;
+  avatarUrl?: string | null;
   unreadNotifications: number;
   onOpenMenu: () => void;
   showOpenAdmin: boolean;
@@ -91,6 +98,10 @@ export function EmployeeTopBar({
         <div className="truncate text-lg font-semibold leading-tight tracking-tight text-slate-900 sm:text-xl">
           {title}
         </div>
+      </div>
+
+      <div className="hidden shrink-0 items-center gap-2 sm:flex" aria-hidden>
+        <UserAvatar name={displayName} email={email} avatarUrl={avatarUrl} size="sm" />
       </div>
 
       <div className="flex shrink-0 items-center gap-2">

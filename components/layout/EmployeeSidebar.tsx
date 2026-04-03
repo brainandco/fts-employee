@@ -3,6 +3,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { UserAvatar } from "@/components/profile/UserAvatar";
 
 /** Served from `public/New folder/logo.png` (URL-encoded path for the space in the folder name). */
 const EMPLOYEE_PORTAL_LOGO = "/New%20folder/black.png";
@@ -20,23 +21,18 @@ export function EmployeeSidebar({
   sections,
   displayName,
   email,
+  avatarUrl,
   mobileOpen,
   onCloseMobile,
 }: {
   sections: EmployeeNavSection[];
   displayName: string;
   email: string | null;
+  avatarUrl?: string | null;
   mobileOpen: boolean;
   onCloseMobile?: () => void;
 }) {
   const pathname = usePathname();
-
-  const initials = displayName
-    .split(/\s+/)
-    .map((s) => s[0])
-    .slice(0, 2)
-    .join("")
-    .toUpperCase() || "?";
 
   function handleNav() {
     onCloseMobile?.();
@@ -100,9 +96,7 @@ export function EmployeeSidebar({
 
       <div className="shrink-0 px-3 py-4">
         <div className="flex items-center gap-3 rounded-xl bg-white/5 p-2 ring-1 ring-white/10">
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-indigo-600 text-sm font-semibold text-white shadow-lg shadow-indigo-900/30">
-            {initials}
-          </div>
+          <UserAvatar name={displayName} email={email} avatarUrl={avatarUrl} size="md" />
           <div className="min-w-0 flex-1">
             <p className="truncate text-sm font-medium text-white">{displayName}</p>
             {email ? <p className="truncate text-xs text-slate-400">{email}</p> : null}

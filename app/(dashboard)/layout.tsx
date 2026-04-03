@@ -20,12 +20,12 @@ export default async function DashboardLayout({
   const client = admin ?? supabase;
   const { data: employee } = await client
     .from("employees")
-    .select("id, full_name, status, region_id")
+    .select("id, full_name, status, region_id, avatar_url")
     .eq("email", email)
     .maybeSingle();
   const { data: userProfile } = await client
     .from("users_profile")
-    .select("id, full_name, status")
+    .select("id, full_name, status, avatar_url")
     .eq("email", email)
     .maybeSingle();
 
@@ -50,6 +50,7 @@ export default async function DashboardLayout({
   }
 
   const displayName = employee?.full_name ?? userProfile?.full_name ?? email;
+  const avatarUrl = employee?.avatar_url ?? userProfile?.avatar_url ?? null;
   const roleBadge = isAdminView ? "Admin" : isPm ? "PM" : isQc ? "QC" : isPp ? "Post Processor" : "Team";
   const { count: unreadNotifications } = session?.user?.id
     ? await dataClient
@@ -67,6 +68,7 @@ export default async function DashboardLayout({
         items: [
           { href: "/dashboard", label: "Admin view" },
           { href: "/dashboard/admin-overview", label: "All employees" },
+          { href: "/settings/profile", label: "Profile settings" },
         ],
       },
     ];
@@ -114,6 +116,7 @@ export default async function DashboardLayout({
         { href: "/tasks", label: "My tasks" },
         { href: "/dashboard/notifications", label: "Notifications" },
         { href: "/leave", label: "Leave" },
+        { href: "/settings/profile", label: "Profile settings" },
       ],
     });
   }
@@ -124,6 +127,7 @@ export default async function DashboardLayout({
         navSections={navSections}
         displayName={displayName}
         email={session.user.email ?? null}
+        avatarUrl={avatarUrl}
         roleBadge={roleBadge}
         unreadNotifications={unreadNotifications ?? 0}
         showOpenAdmin={isAdminView}
