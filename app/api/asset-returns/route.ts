@@ -1,0 +1,85 @@
+import { createServerSupabaseClient } from "@/lib/supabase/server";
+import { getDataClient } from "@/lib/supabase/server";
+import { NextResponse } from "next/server";
+import { notifyPmAndQcInRegion } from "@/lib/notifyRegionStaff";
+
+/**
+ * Employee returns an asset assigned to them (Assigned).
+ * Creates asset_return_requests (pending) and sets asset to Pending_Return, unassigned.
+ */
+export async function POST(req: Request) {
+  const userClient = await createServerSupabaseClient();
+  const { data: { session } } = await userClient.auth.getSession();
+  if (!session) return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
+
+  const body = await req.json().catch(() => ({}));
+  const assetId = typeof body.asset_id === "string" ? body.asset_id.trim() : "";
+  const employee_comment = typeof body.employee_comment === "string" ? body.employee_comment.trim() : "";
+  if (!assetId) return NextResponse.json({ message: "asset_id required" }, { status: 400 });
+  if (!employee_comment) return NextResponse.json({ message: "employee_comment is required" }, { status: 400 });
+
+  const supabase = await getDataClient();
+  const email = (session.user.email ?? "").trim().toLowerCase();
+  const { data: employee } = await supabase.from("employees").select("id, region_id").eq("email", email).maybeSingle();
+  if (!employee) return NextResponse.json({ message: "Employee not found" }, { status: 403 });
+
+  const { data: asset, error: aErr } = await supabase
+    .from("assets")
+    .select("id, assigned_to_employee_id, status, assigned_region_id")
+    .eq("id", assetId)
+    .single();
+
+  if (aErr || !asset) return NextResponse.json({ message: "Asset not found" }, { status: 404 });
+  if (asset.assigned_to_employee_id !== employee.id) {
+    return NextResponse.json({ message: "This asset is not assigned to you" }, { status: 403 });
+  }
+  if (asset.status !== "Assigned") {
+    return NextResponse.json({ message: "Only assigned assets can be returned this way" }, { status: 400 });
+  }
+
+  const { data: existingPending } = await supabase
+    .from("asset_return_requests")
+    .select("id")
+    .eq("asset_id", assetId)
+    .eq("status", "pending")
+    .maybeSingle();
+  if (existingPending) {
+    return NextResponse.json({ message: "A return for this asset is already pending" }, { status: 400 });
+  }
+
+  const region_id = asset.assigned_region_id ?? employee.region_id ?? null;
+
+  const { error: insErr } = await supabase.from("asset_return_requests").insert({
+    asset_id: assetId,
+    from_employee_id: employee.id,
+    region_id,
+    employee_comment,
+    status: "pending",
+  });
+
+  if (insErr) return NextResponse.json({ message: insErr.message }, { status: 400 });
+
+  const { error: updErr } = await supabase
+    .from("assets")
+    .update({
+      status: "Pending_Return",
+      assigned_to_employee_id: null,
+      assigned_by: null,
+      assigned_at: null,
+    })
+    .eq("id", assetId);
+
+  if (updErr) return NextResponse.json({ message: updErr.message }, { status: 400 });
+
+  if (region_id) {
+    await notifyPmAndQcInRegion(supabase, region_id, {
+      title: "Asset return pending review",
+      body: "An employee has returned an asset. Please review in Asset return queue (PM) and confirm handover with QC as needed.",
+      category: "asset_return",
+      link: "/dashboard/asset-returns",
+      meta: { asset_id: assetId, from_employee_id: employee.id },
+    });
+  }
+
+  return NextResponse.json({ ok: true });
+}

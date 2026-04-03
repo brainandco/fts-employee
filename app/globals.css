@@ -1,0 +1,272 @@
+@import "tailwindcss";
+
+:root {
+  --background: #f1f5f9;
+  --foreground: #0f172a;
+  --fts-violet: #6366f1;
+  --fts-indigo: #4f46e5;
+  --fts-cyan: #06b6d4;
+  --fts-teal: #14b8a6;
+  --fts-amber: #f59e0b;
+  --fts-rose: #f43f5e;
+  --fts-primary: #4f46e5;
+  --fts-primary-hover: #4338ca;
+  --fts-auth-bg: #e2e8f0;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+@keyframes fts-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes fts-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-4px);
+  }
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+}
+
+/* Match admin portal: solid light indigo tint */
+.fts-app-shell {
+  position: relative;
+  min-height: 100vh;
+  min-height: 100dvh;
+  background-color: #eef2ff;
+}
+
+/* Stacking context for shell content. Do not put fixed sidebars as direct children of .fts-app-shell — this rule overrides position:fixed. */
+.fts-app-shell > * {
+  position: relative;
+  z-index: 1;
+}
+
+/* Content column beside fixed sidebar (employee portal) */
+.fts-dashboard-column {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  min-width: 0;
+  height: 100dvh;
+  max-height: 100dvh;
+  overflow: hidden;
+}
+
+@media (min-width: 1024px) {
+  .fts-dashboard-column {
+    padding-left: 14rem; /* w-56 */
+  }
+}
+
+.fts-dashboard-topbar {
+  flex: 0 0 auto;
+  height: 3.5rem;
+  min-height: 3.5rem;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  border-bottom: 1px solid rgb(226 232 240);
+  background-color: #ffffff;
+  box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.04);
+}
+
+.fts-dashboard-scroll {
+  flex: 1 1 0%;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.fts-auth-shell {
+  position: relative;
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+  background-color: var(--fts-auth-bg);
+}
+
+.fts-auth-card {
+  animation: fts-fade-in 0.55s ease-out both;
+}
+
+.fts-auth-panel {
+  border-radius: 1rem;
+  border: 1px solid #cbd5e1;
+  background-color: #ffffff;
+  box-shadow: 0 12px 40px -12px rgba(15, 23, 42, 0.12);
+}
+
+.fts-animate-in {
+  animation: fts-fade-in 0.45s ease-out both;
+}
+
+.fts-surface {
+  border-radius: 1rem;
+  border: 1px solid #e2e8f0;
+  background-color: #ffffff;
+  box-shadow: 0 10px 30px -18px rgba(15, 23, 42, 0.28);
+}
+
+.fts-subtle {
+  border-radius: 0.9rem;
+  border: 1px solid #e2e8f0;
+  background-color: #f8fafc;
+}
+
+.fts-page-title {
+  font-size: 1.5rem;
+  line-height: 2rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: #0f172a;
+}
+
+.fts-page-desc {
+  margin-top: 0.35rem;
+  font-size: 0.92rem;
+  color: #475569;
+}
+
+.fts-panel {
+  border-radius: 1rem;
+  border: 1px solid #e2e8f0;
+  background-color: #ffffff;
+  box-shadow: 0 10px 24px -20px rgba(2, 6, 23, 0.45);
+}
+
+.fts-btn-primary {
+  color: #ffffff;
+  background-color: var(--fts-primary);
+  transition: transform 0.2s ease, box-shadow 0.2s ease, background-color 0.2s ease;
+}
+
+.fts-btn-primary:hover:not(:disabled) {
+  background-color: var(--fts-primary-hover);
+  box-shadow: 0 8px 20px -4px rgba(79, 70, 229, 0.45);
+  transform: translateY(-1px);
+}
+
+.fts-btn-primary:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.fts-input {
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.fts-input:focus {
+  border-color: var(--fts-violet);
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.2);
+  outline: none;
+}
+
+@keyframes fts-login-drift {
+  0%,
+  100% {
+    transform: translate(0, 0) scale(1);
+  }
+  33% {
+    transform: translate(12px, -16px) scale(1.04);
+  }
+  66% {
+    transform: translate(-10px, 10px) scale(0.96);
+  }
+}
+
+@keyframes fts-login-drift-reverse {
+  0%,
+  100% {
+    transform: translate(0, 0) scale(1);
+  }
+  50% {
+    transform: translate(-14px, 12px) scale(1.05);
+  }
+}
+
+@keyframes fts-login-fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(18px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.fts-login-blob {
+  animation: fts-login-drift 16s ease-in-out infinite;
+}
+
+.fts-login-blob--2 {
+  animation: fts-login-drift-reverse 20s ease-in-out infinite;
+  animation-delay: -4s;
+}
+
+.fts-login-blob--3 {
+  animation: fts-login-drift 12s ease-in-out infinite;
+  animation-delay: -6s;
+}
+
+.fts-login-stagger > * {
+  opacity: 0;
+  animation: fts-login-fade-up 0.65s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+.fts-login-stagger > *:nth-child(1) {
+  animation-delay: 0.05s;
+}
+.fts-login-stagger > *:nth-child(2) {
+  animation-delay: 0.12s;
+}
+.fts-login-stagger > *:nth-child(3) {
+  animation-delay: 0.19s;
+}
+.fts-login-stagger > *:nth-child(4) {
+  animation-delay: 0.26s;
+}
+.fts-login-stagger > *:nth-child(5) {
+  animation-delay: 0.33s;
+}
+.fts-login-stagger > *:nth-child(6) {
+  animation-delay: 0.4s;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fts-login-blob,
+  .fts-login-blob--2,
+  .fts-login-blob--3 {
+    animation: none;
+  }
+
+  .fts-login-stagger > * {
+    animation: none;
+    opacity: 1;
+    transform: none;
+  }
+}
