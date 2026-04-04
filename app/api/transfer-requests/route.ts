@@ -20,7 +20,9 @@ export async function GET() {
 
   const { data: roles } = await supabase.from("employee_roles").select("role").eq("employee_id", employee.id);
   const roleSet = new Set((roles ?? []).map((r) => r.role));
-  const canRequest = roleSet.has("DT") || roleSet.has("Driver/Rigger");
+  const isSelfDt = roleSet.has("Self DT");
+  const canRequest =
+    roleSet.has("DT") || roleSet.has("Driver/Rigger") || isSelfDt;
   const canReview = roleSet.has("QC") || roleSet.has("Project Manager");
 
   const query = supabase
@@ -56,10 +58,11 @@ export async function POST(req: Request) {
 
   const { data: roles } = await supabase.from("employee_roles").select("role").eq("employee_id", employee.id);
   const roleSet = new Set((roles ?? []).map((r) => r.role));
-  const isDt = roleSet.has("DT");
-  const isDriver = roleSet.has("Driver/Rigger");
+  const isSelfDt = roleSet.has("Self DT");
+  const isDt = roleSet.has("DT") || isSelfDt;
+  const isDriver = roleSet.has("Driver/Rigger") || isSelfDt;
   if (!isDt && !isDriver) {
-    return NextResponse.json({ message: "Only DT or Driver/Rigger can create transfer requests" }, { status: 403 });
+    return NextResponse.json({ message: "Only DT, Driver/Rigger, or Self DT can create transfer requests" }, { status: 403 });
   }
 
   let target_employee_id: string | null = null;
@@ -77,13 +80,11 @@ export async function POST(req: Request) {
     if (!targetEmp || targetEmp.region_id !== employee.region_id || targetEmp.id === employee.id) {
       return NextResponse.json({ message: "Target driver must be active in your region" }, { status: 400 });
     }
-    const { data: targetRole } = await supabase
-      .from("employee_roles")
-      .select("role")
-      .eq("employee_id", targetEmp.id)
-      .eq("role", "Driver/Rigger")
-      .maybeSingle();
-    if (!targetRole) return NextResponse.json({ message: "Target employee must be Driver/Rigger" }, { status: 400 });
+    const { data: targetRoleRows } = await supabase.from("employee_roles").select("role").eq("employee_id", targetEmp.id);
+    const targetOkDriver = (targetRoleRows ?? []).some(
+      (r) => r.role === "Driver/Rigger" || r.role === "Self DT"
+    );
+    if (!targetOkDriver) return NextResponse.json({ message: "Target employee must be Driver/Rigger or Self DT" }, { status: 400 });
     const { data: ownVehicle } = await supabase.from("vehicle_assignments").select("vehicle_id").eq("employee_id", employee.id).maybeSingle();
     const { data: targetVehicle } = await supabase.from("vehicle_assignments").select("vehicle_id").eq("employee_id", targetEmp.id).maybeSingle();
     if (!ownVehicle?.vehicle_id || !targetVehicle?.vehicle_id) {
@@ -136,8 +137,9 @@ export async function POST(req: Request) {
     if (!targetEmp || targetEmp.region_id !== employee.region_id || targetEmp.id === employee.id) {
       return NextResponse.json({ message: "Target DT must be in your region" }, { status: 400 });
     }
-    const { data: targetRole } = await supabase.from("employee_roles").select("role").eq("employee_id", targetEmp.id).eq("role", "DT").maybeSingle();
-    if (!targetRole) return NextResponse.json({ message: "Target employee must be DT" }, { status: 400 });
+    const { data: targetRoleRowsAt } = await supabase.from("employee_roles").select("role").eq("employee_id", targetEmp.id);
+    const targetOkDt = (targetRoleRowsAt ?? []).some((r) => r.role === "DT" || r.role === "Self DT");
+    if (!targetOkDt) return NextResponse.json({ message: "Target employee must be DT or Self DT" }, { status: 400 });
 
     const { data: asset } = await supabase
       .from("assets")

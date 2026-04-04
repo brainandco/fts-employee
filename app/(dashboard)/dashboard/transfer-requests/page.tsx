@@ -21,8 +21,9 @@ export default async function TransferRequestsPage() {
 
   const { data: roles } = await supabase.from("employee_roles").select("role").eq("employee_id", employee.id);
   const roleSet = new Set((roles ?? []).map((r) => r.role));
-  const canRequestAssetTransfer = roleSet.has("DT");
-  const canRequestVehicleFlows = roleSet.has("Driver/Rigger");
+  const isSelfDt = roleSet.has("Self DT");
+  const canRequestAssetTransfer = roleSet.has("DT") || isSelfDt;
+  const canRequestVehicleFlows = roleSet.has("Driver/Rigger") || isSelfDt;
   const canRequest = canRequestAssetTransfer || canRequestVehicleFlows;
   const canReview = roleSet.has("QC") || roleSet.has("Project Manager");
   if (!canRequest && !canReview) redirect("/dashboard");
@@ -48,8 +49,14 @@ export default async function TransferRequestsPage() {
     if (!roleMap.has(r.employee_id)) roleMap.set(r.employee_id, new Set());
     roleMap.get(r.employee_id)!.add(r.role);
   }
-  const drivers = (regionEmployees ?? []).filter((e) => roleMap.get(e.id)?.has("Driver/Rigger"));
-  const dts = (regionEmployees ?? []).filter((e) => roleMap.get(e.id)?.has("DT"));
+  const drivers = (regionEmployees ?? []).filter((e) => {
+    const s = roleMap.get(e.id);
+    return s?.has("Driver/Rigger") || s?.has("Self DT");
+  });
+  const dts = (regionEmployees ?? []).filter((e) => {
+    const s = roleMap.get(e.id);
+    return s?.has("DT") || s?.has("Self DT");
+  });
 
   const { data: teams } = await supabase
     .from("teams")
