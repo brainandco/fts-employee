@@ -12,12 +12,24 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
-const appUrl =
-  process.env.NEXT_PUBLIC_APP_URL?.trim() ||
-  (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "");
+/** Safe for metadataBase: bare hostnames and bad env values must not throw during build (Invalid URL on /_not-found etc.). */
+function getMetadataBase(): URL | undefined {
+  const raw =
+    process.env.NEXT_PUBLIC_APP_URL?.trim() ||
+    (process.env.VERCEL_URL?.trim() ? `https://${process.env.VERCEL_URL.trim()}` : "");
+  if (!raw) return undefined;
+  const normalized = /^https?:\/\//i.test(raw) ? raw : `https://${raw}`;
+  try {
+    return new URL(normalized);
+  } catch {
+    return undefined;
+  }
+}
+
+const metadataBase = getMetadataBase();
 
 export const metadata: Metadata = {
-  ...(appUrl ? { metadataBase: new URL(appUrl) } : {}),
+  ...(metadataBase ? { metadataBase } : {}),
   title: "FTS Employee Portal",
   description: "Fast Technology Solutions – Employee Portal",
   themeColor: "#0f172a",
