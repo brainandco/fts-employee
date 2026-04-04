@@ -3,7 +3,6 @@
 import { useEffect, useState } from "react";
 import { EmployeeSidebar, type EmployeeNavSection } from "./EmployeeSidebar";
 import { EmployeeTopBar } from "./EmployeeTopBar";
-
 export function EmployeePortalChrome({
   children,
   navSections,
