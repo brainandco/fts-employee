@@ -41,7 +41,7 @@ export default async function DashboardPage() {
   const isProjectCoordinator = (myRoles ?? []).some((r) => r.role === "Project Coordinator");
   const isDriverOrSelfDt = (myRoles ?? []).some((r) => r.role === "Driver/Rigger" || r.role === "Self DT");
 
-  const [regionRes, assetsRes, simsRes, assignmentsRes, tasksRes, approvalsRes, regionEmployeesRes] = await Promise.all([
+  const [regionRes, assetsRes, simsRes, assignmentsRes, tasksRes, approvalsRes, regionEmployeesRes, pendingReceiptsRes] = await Promise.all([
     employee.region_id
       ? supabase.from("regions").select("id, name, code").eq("id", employee.region_id).single()
       : { data: null },
@@ -69,6 +69,11 @@ export default async function DashboardPage() {
           .select("id, full_name, email")
           .eq("region_id", employee.region_id)
       : { data: [] },
+    supabase
+      .from("resource_receipt_confirmations")
+      .select("id", { count: "exact", head: true })
+      .eq("employee_id", employee.id)
+      .eq("status", "pending"),
   ]);
 
   const region = regionRes.data;
@@ -86,15 +91,38 @@ export default async function DashboardPage() {
     : { data: [] };
   const leaveRequests = approvals.filter((a) => a.approval_type === "leave_request");
   const openTasks = tasks.filter((t) => t.status !== "Completed" && t.status !== "Closed");
+  const pendingReceiptCount = pendingReceiptsRes.count ?? 0;
 
   return (
     <div className="space-y-6">
+      {pendingReceiptCount > 0 ? (
+        <section className="rounded-2xl border border-amber-300 bg-amber-50/90 p-4 sm:p-5">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <p className="text-sm font-semibold text-amber-900">Receipt confirmation required</p>
+              <p className="mt-1 text-sm text-amber-950/90">
+                {pendingReceiptCount === 1
+                  ? "One assigned item needs you to confirm you received it."
+                  : `${pendingReceiptCount} assigned items need you to confirm receipt.`}{" "}
+                Assignees must acknowledge receipt of assets, SIMs, and vehicles.
+              </p>
+            </div>
+            <Link
+              href="/dashboard/receipts"
+              className="shrink-0 rounded-lg bg-amber-800 px-4 py-2 text-sm font-medium text-white hover:bg-amber-900"
+            >
+              Confirm receipt →
+            </Link>
+          </div>
+        </section>
+      ) : null}
+
       <section className="rounded-2xl border border-indigo-200/80 bg-gradient-to-r from-indigo-50 via-violet-50 to-slate-50 p-5 sm:p-7">
         <div className="flex flex-wrap items-end justify-between gap-4">
           <div>
             <h1 className="text-2xl font-semibold tracking-tight text-zinc-900 sm:text-3xl">Dashboard</h1>
             <p className="mt-1 text-sm text-zinc-700">
-              Your region, assignments, tasks, and leave activity in one place. Return tools, SIMs, and vehicles from this dashboard before leaving a team—QC and PM are notified.
+              Your region, assignments, tasks, and leave activity in one place. When you receive assigned assets, SIMs, or vehicles, confirm receipt under Confirm receipt. Return tools, SIMs, and vehicles from this dashboard before leaving a team—QC and PM are notified.
             </p>
           </div>
           <span className="rounded-full bg-white/80 px-3 py-1 text-xs font-semibold text-indigo-700 ring-1 ring-indigo-200">

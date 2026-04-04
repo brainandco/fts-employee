@@ -2,6 +2,7 @@ import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { getDataClient } from "@/lib/supabase/server";
 import { NextResponse } from "next/server";
 import { notifyPmAndQcInRegion } from "@/lib/notifyRegionStaff";
+import { deleteReceiptForResource } from "@/lib/resource-receipts";
 
 /**
  * Driver/Rigger or Self DT returns their assigned vehicle to the pool (QC/PM notified).
@@ -57,6 +58,8 @@ export async function POST(req: Request) {
     .eq("id", vehicleId);
 
   if (vErr) return NextResponse.json({ message: vErr.message }, { status: 400 });
+
+  await deleteReceiptForResource(supabase, "vehicle", vehicleId);
 
   if (employee.region_id) {
     await notifyPmAndQcInRegion(supabase, employee.region_id, {

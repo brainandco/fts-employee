@@ -8,7 +8,7 @@ import { PmAssignSimsClient } from "./PmAssignSimsClient";
 export default async function PmAssignSimsPage() {
   const userClient = await createServerSupabaseClient();
   const { data: { session } } = await userClient.auth.getSession();
-  if (!session) redirect("/login");
+  if (!session?.user?.id) redirect("/login");
 
   const supabase = await getDataClient();
   const { data: employee } = await supabase
@@ -32,11 +32,15 @@ export default async function PmAssignSimsPage() {
     .eq("status", "Available")
     .order("sim_number");
 
-  const assignees = await loadPmTeamAssigneeOptions(supabase, {
-    id: employee.id,
-    region_id: employee.region_id,
-    project_id: employee.project_id,
-  });
+  const assignees = await loadPmTeamAssigneeOptions(
+    supabase,
+    {
+      id: employee.id,
+      region_id: employee.region_id,
+      project_id: employee.project_id,
+    },
+    session.user.id
+  );
 
   return (
     <div className="space-y-5">
@@ -48,8 +52,7 @@ export default async function PmAssignSimsPage() {
       <div className="rounded-2xl border border-indigo-200 bg-gradient-to-r from-indigo-50 to-violet-50 p-5 sm:p-6">
         <h1 className="text-2xl font-semibold text-zinc-900">Assign SIMs to team members</h1>
         <p className="mt-1 text-sm text-zinc-600">
-          PM-only assignment. Choose a DT or Driver/Rigger on a team in your region
-          {employee.project_id ? " and project" : ""}.
+          PM-only assignment. Choose a DT or Driver/Rigger on a team (team region and project come from Admin).
         </p>
       </div>
       <PmAssignSimsClient sims={(sims ?? []).map((s) => ({ ...s }))} assignees={assignees} />

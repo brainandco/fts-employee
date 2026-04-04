@@ -2,9 +2,10 @@ import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { getDataClient } from "@/lib/supabase/server";
 import { NextResponse } from "next/server";
 import { targetEmployeeIsOnPmTeam } from "@/lib/pm-team-assignees";
+import { upsertPendingReceipts } from "@/lib/resource-receipts";
 
 /**
- * POST /api/assets/assign-pm — PM assigns available assets to a DT or Driver/Rigger on a team in their region (and project when set).
+ * POST /api/assets/assign-pm — PM assigns available assets to a DT or Driver/Rigger on a team in scope (team region/project; projects where user is PM).
  * Body: { asset_ids: string[], employee_id: string }
  */
 export async function POST(req: Request) {
@@ -42,9 +43,6 @@ export async function POST(req: Request) {
     .eq("id", employeeId)
     .single();
   if (!toEmployee) return NextResponse.json({ message: "Target employee not found" }, { status: 404 });
-  if (toEmployee.region_id !== pmEmployee.region_id) {
-    return NextResponse.json({ message: "You can only assign to employees in your region" }, { status: 400 });
-  }
 
   const { data: qcRole } = await supabase
     .from("employee_roles")
@@ -56,12 +54,12 @@ export async function POST(req: Request) {
     return NextResponse.json({ message: "Assets cannot be assigned to QC." }, { status: 400 });
   }
 
-  const onTeam = await targetEmployeeIsOnPmTeam(supabase, pmEmployee, employeeId);
+  const onTeam = await targetEmployeeIsOnPmTeam(supabase, pmEmployee, employeeId, session.user.id);
   if (!onTeam) {
     return NextResponse.json(
       {
         message:
-          "Assign only to a DT or Driver/Rigger on a team in your region (and project, when your record has a project).",
+          "Assign only to a DT or Driver/Rigger on a team in your scope (team region/project in Admin, or project PM on the project).",
       },
       { status: 400 }
     );
@@ -93,6 +91,14 @@ export async function POST(req: Request) {
     });
   }
 
+  if (availableIds.length > 0) {
+    await upsertPendingReceipts(supabase, {
+      employeeId: employeeId,
+      assignedByUserId: session.user.id,
+      items: availableIds.map((rid) => ({ resourceType: "asset" as const, resourceId: rid })),
+    });
+  }
+
   if (availableIds.length > 0 && toEmployee?.email) {
     const { data: recipient } = await supabase
       .from("users_profile")
@@ -102,10 +108,13 @@ export async function POST(req: Request) {
     if (recipient?.id) {
       await supabase.from("notifications").insert({
         recipient_user_id: recipient.id,
-        title: "Asset assigned to you",
-        body: `${availableIds.length} asset(s) were assigned to you by PM.`,
-        category: "asset_assignment",
-        link: "/dashboard",
+        title: "Confirm receipt: assets assigned",
+        body:
+          availableIds.length === 1
+            ? "An asset was assigned to you. Please open Confirm receipt and confirm you physically received it (optional note)."
+            : `${availableIds.length} assets were assigned to you. Please open Confirm receipt and confirm you received them.`,
+        category: "assignment_receipt",
+        link: "/dashboard/receipts",
         meta: { asset_ids: availableIds, assigned_by: session.user.id },
       });
     }

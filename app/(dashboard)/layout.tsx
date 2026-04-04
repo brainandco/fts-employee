@@ -72,6 +72,16 @@ export default async function DashboardLayout({
         .eq("is_read", false)
     : { count: 0 };
 
+  let pendingReceiptCount = 0;
+  if (employee && !isAdminView) {
+    const { count } = await dataClient
+      .from("resource_receipt_confirmations")
+      .select("id", { count: "exact", head: true })
+      .eq("employee_id", employee.id)
+      .eq("status", "pending");
+    pendingReceiptCount = count ?? 0;
+  }
+
   let navSections: EmployeeNavSection[] = [];
   if (isAdminView) {
     navSections = [
@@ -85,7 +95,18 @@ export default async function DashboardLayout({
       },
     ];
   } else {
-    navSections = [{ label: "Overview", items: [{ href: "/dashboard", label: "Dashboard" }] }];
+    navSections = [
+      {
+        label: "Overview",
+        items: [
+          { href: "/dashboard", label: "Dashboard" },
+          {
+            href: "/dashboard/receipts",
+            label: pendingReceiptCount > 0 ? `Confirm receipt (${pendingReceiptCount})` : "Confirm receipt",
+          },
+        ],
+      },
+    ];
     if (isPm) {
       navSections.push({
         label: "Project manager",

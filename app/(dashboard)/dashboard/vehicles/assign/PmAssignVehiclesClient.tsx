@@ -75,7 +75,7 @@ export function PmAssignVehiclesClient({ vehicles, assignees }: { vehicles: Vehi
       </div>
 
       {vehicles.length === 0 ? (
-        <div className="rounded-2xl border border-zinc-200 bg-white p-6 text-sm text-zinc-500">No available unassigned vehicles in your region.</div>
+        <div className="rounded-2xl border border-zinc-200 bg-white p-6 text-sm text-zinc-500">No available unassigned vehicles in the pool you can assign.</div>
       ) : (
         <div className="overflow-x-auto rounded-2xl border border-zinc-200 bg-white">
           <table className="w-full text-sm">

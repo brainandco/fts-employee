@@ -3,6 +3,7 @@ import { getDataClient } from "@/lib/supabase/server";
 import { canEmployeeInitiateAssetReturn } from "@/lib/asset-return-eligibility";
 import { NextResponse } from "next/server";
 import { notifyPmAndQcInRegion } from "@/lib/notifyRegionStaff";
+import { deleteReceiptForResource } from "@/lib/resource-receipts";
 
 /**
  * Employee returns an asset assigned to them (Assigned, Under_Maintenance, or Damaged — still in their custody).
@@ -78,6 +79,8 @@ export async function POST(req: Request) {
     .eq("id", assetId);
 
   if (updErr) return NextResponse.json({ message: updErr.message }, { status: 400 });
+
+  await deleteReceiptForResource(supabase, "asset", assetId);
 
   if (region_id) {
     await notifyPmAndQcInRegion(supabase, region_id, {

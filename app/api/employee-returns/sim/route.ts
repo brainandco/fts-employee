@@ -2,6 +2,7 @@ import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { getDataClient } from "@/lib/supabase/server";
 import { NextResponse } from "next/server";
 import { notifyPmAndQcInRegion } from "@/lib/notifyRegionStaff";
+import { deleteReceiptForResource } from "@/lib/resource-receipts";
 
 /**
  * Employee returns an assigned SIM to inventory (QC/PM notified).
@@ -53,6 +54,8 @@ export async function POST(req: Request) {
     .eq("id", sim_id);
 
   if (u1) return NextResponse.json({ message: u1.message }, { status: 400 });
+
+  await deleteReceiptForResource(supabase, "sim_card", sim_id);
 
   const { data: histRow } = await supabase
     .from("sim_assignment_history")

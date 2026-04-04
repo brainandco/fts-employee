@@ -2,8 +2,9 @@ import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { getDataClient } from "@/lib/supabase/server";
 import { NextResponse } from "next/server";
 import { targetEmployeeIsOnPmTeam } from "@/lib/pm-team-assignees";
+import { upsertPendingReceipts } from "@/lib/resource-receipts";
 
-/** PM assigns available vehicles to Driver/Rigger or Self DT on a team in their region (and project when set). */
+/** PM assigns available vehicles to Driver/Rigger or Self DT on a team in scope (team region/project; projects where user is PM). */
 export async function POST(req: Request) {
   const userClient = await createServerSupabaseClient();
   const { data: { session } } = await userClient.auth.getSession();
@@ -39,16 +40,13 @@ export async function POST(req: Request) {
     .eq("id", employeeId)
     .single();
   if (!toEmployee) return NextResponse.json({ message: "Target employee not found" }, { status: 404 });
-  if (toEmployee.region_id !== pmEmployee.region_id) {
-    return NextResponse.json({ message: "You can only assign vehicles to employees in your region" }, { status: 400 });
-  }
 
-  const onTeam = await targetEmployeeIsOnPmTeam(supabase, pmEmployee, employeeId);
+  const onTeam = await targetEmployeeIsOnPmTeam(supabase, pmEmployee, employeeId, session.user.id);
   if (!onTeam) {
     return NextResponse.json(
       {
         message:
-          "Assign only to a team member (DT or Driver/Rigger slot) in your region and project. Use teams set up in Admin.",
+          "Assign only to a team member (DT or Driver/Rigger) on a team in your scope (team region/project in Admin, or project PM).",
       },
       { status: 400 }
     );
@@ -103,19 +101,30 @@ export async function POST(req: Request) {
     }).eq("id", v.id);
   }
 
+  if (eligible.length > 0) {
+    await upsertPendingReceipts(supabase, {
+      employeeId: employeeId,
+      assignedByUserId: session.user.id,
+      items: eligible.map((v) => ({ resourceType: "vehicle" as const, resourceId: v.id })),
+    });
+  }
+
   if (toEmployee.email) {
     const { data: recipient } = await supabase
       .from("users_profile")
       .select("id")
       .eq("email", toEmployee.email)
       .maybeSingle();
-    if (recipient?.id) {
+    if (recipient?.id && eligible.length > 0) {
       await supabase.from("notifications").insert({
         recipient_user_id: recipient.id,
-        title: "Vehicle assigned to you",
-        body: `${eligible.length} vehicle(s) were assigned to you by PM.`,
-        category: "vehicle_assignment",
-        link: "/dashboard",
+        title: "Confirm receipt: vehicle assigned",
+        body:
+          eligible.length === 1
+            ? "A vehicle was assigned to you. Please open Confirm receipt and confirm you received keys/access."
+            : `${eligible.length} vehicles were assigned to you. Please open Confirm receipt to confirm receipt.`,
+        category: "assignment_receipt",
+        link: "/dashboard/receipts",
         meta: { vehicle_ids: eligible.map((v) => v.id), assigned_by: session.user.id },
       });
     }

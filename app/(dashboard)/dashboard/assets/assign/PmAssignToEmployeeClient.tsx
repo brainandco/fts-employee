@@ -96,7 +96,7 @@ export function PmAssignToEmployeeClient({ assets, assignees }: { assets: Asset[
   if (assets.length === 0) {
     return (
       <div className="rounded-xl border border-zinc-200 bg-white p-8 text-center">
-        <p className="text-zinc-600">No available assets. Request new assets from Admin or ensure they are in your region.</p>
+        <p className="text-zinc-600">No available assets in the pool for assignment. Request new assets from Admin or check regional asset pool settings.</p>
       </div>
     );
   }
@@ -123,7 +123,7 @@ export function PmAssignToEmployeeClient({ assets, assignees }: { assets: Asset[
         </button>
         <p className="text-xs text-zinc-500">Showing: <span className="font-medium text-zinc-700">{activeType}</span> ({filteredAssets.length})</p>
         {assignees.length === 0 && (
-          <p className="text-sm text-amber-600">No team members available. Configure teams in the Admin portal for your region and project.</p>
+          <p className="text-sm text-amber-600">No team members in scope. Set region and project on teams in Admin, or assign yourself as project PM on the relevant project.</p>
         )}
       </div>
       <div className="rounded-2xl border border-zinc-200 bg-white p-3">

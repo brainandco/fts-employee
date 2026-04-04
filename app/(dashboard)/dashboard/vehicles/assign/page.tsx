@@ -7,7 +7,7 @@ import { PmAssignVehiclesClient } from "./PmAssignVehiclesClient";
 export default async function PmAssignVehiclesPage() {
   const userClient = await createServerSupabaseClient();
   const { data: { session } } = await userClient.auth.getSession();
-  if (!session) redirect("/login");
+  if (!session?.user?.id) redirect("/login");
 
   const supabase = await getDataClient();
   const { data: employee } = await supabase
@@ -25,11 +25,15 @@ export default async function PmAssignVehiclesPage() {
     .maybeSingle();
   if (!pmRole) redirect("/dashboard");
 
-  const teamAssignees = await loadPmTeamAssigneeOptions(supabase, {
-    id: employee.id,
-    region_id: employee.region_id,
-    project_id: employee.project_id,
-  });
+  const teamAssignees = await loadPmTeamAssigneeOptions(
+    supabase,
+    {
+      id: employee.id,
+      region_id: employee.region_id,
+      project_id: employee.project_id,
+    },
+    session.user.id
+  );
   const teamIds = teamAssignees.map((a) => a.id);
   const { data: vehicleRoles } = teamIds.length
     ? await supabase.from("employee_roles").select("employee_id, role").in("employee_id", teamIds)
@@ -77,8 +81,7 @@ export default async function PmAssignVehiclesPage() {
       <div className="rounded-2xl border border-indigo-200 bg-gradient-to-r from-indigo-50 to-violet-50 p-5 sm:p-6">
         <h1 className="text-2xl font-semibold text-zinc-900">Assign vehicles to team members</h1>
         <p className="mt-1 text-sm text-zinc-600">
-          Assign to Driver/Rigger or Self DT on a team in your region
-          {employee.project_id ? " and project" : ""}. One vehicle per person; already assigned people are hidden.
+          Assign to Driver/Rigger or Self DT on a team whose region and project are set in Admin. One vehicle per person; people who already have a vehicle are hidden.
         </p>
       </div>
       <PmAssignVehiclesClient vehicles={vehicles} assignees={assignees} />

@@ -8,7 +8,7 @@ import { PmAssignToEmployeeClient } from "./PmAssignToEmployeeClient";
 export default async function PmAssignAssetPage() {
   const userClient = await createServerSupabaseClient();
   const { data: { session } } = await userClient.auth.getSession();
-  if (!session) redirect("/login");
+  if (!session?.user?.id) redirect("/login");
 
   const email = (session.user.email ?? "").trim();
   const supabase = await getDataClient();
@@ -30,11 +30,15 @@ export default async function PmAssignAssetPage() {
     .or(employee.region_id ? `assigned_region_id.eq.${employee.region_id},assigned_region_id.is.null` : "assigned_region_id.is.null")
     .order("name");
 
-  const assignees = await loadPmTeamAssigneeOptions(supabase, {
-    id: employee.id,
-    region_id: employee.region_id,
-    project_id: employee.project_id,
-  });
+  const assignees = await loadPmTeamAssigneeOptions(
+    supabase,
+    {
+      id: employee.id,
+      region_id: employee.region_id,
+      project_id: employee.project_id,
+    },
+    session.user.id
+  );
 
   return (
     <div className="space-y-5">
@@ -49,8 +53,7 @@ export default async function PmAssignAssetPage() {
         <div>
           <h1 className="text-2xl font-semibold text-zinc-900">Assign to team member</h1>
           <p className="mt-1 text-sm text-zinc-600">
-            Assign tools to the DT or Driver/Rigger on a team in your region
-            {employee.project_id ? " and project" : ""}. Teams are managed in the Admin portal.
+            Eligibility uses each team’s region and project from Admin (not each field employee’s profile). Listed teams match your PM access: teams aligned to your region/project when those are set on your record, plus teams under projects where you are the project PM.
           </p>
         </div>
         <div className="mt-4 flex flex-wrap items-center gap-2">
@@ -64,9 +67,7 @@ export default async function PmAssignAssetPage() {
         <h2 className="text-sm font-semibold text-zinc-800">Eligible assignees (from your teams)</h2>
         {assignees.length === 0 ? (
           <p className="mt-2 text-sm text-zinc-500">
-            No teams with DT or Driver/Rigger found for your region
-            {employee.project_id ? " and project" : ""}. Ask an administrator to create teams and set region
-            {employee.project_id ? ", project," : ""} and members.
+            No teams with DT or Driver/Rigger in scope. In Admin, set region and project on each team, assign DT and Driver/Rigger, or assign you as project PM on the project that owns the team.
           </p>
         ) : (
           <div className="mt-3 flex flex-wrap gap-2">
