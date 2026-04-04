@@ -1,6 +1,7 @@
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { getDataClient } from "@/lib/supabase/server";
 import { NextResponse } from "next/server";
+import { REGION_FALLBACK_TEAM_ID } from "@/lib/transfer-requests/constants";
 
 type TransferType = "vehicle_swap" | "vehicle_replacement" | "drive_swap" | "asset_transfer";
 
@@ -75,6 +76,9 @@ export async function POST(req: Request) {
   const assetIdInput = typeof body.asset_id === "string" ? body.asset_id.trim() : "";
 
   if (request_type === "vehicle_swap") {
+    if (!targetTeamIdInput) {
+      return NextResponse.json({ message: "Choose a team, then the driver for vehicle swap" }, { status: 400 });
+    }
     if (!targetEmployeeIdInput) return NextResponse.json({ message: "Target driver is required for vehicle swap" }, { status: 400 });
     const { data: targetEmp } = await supabase.from("employees").select("id, region_id").eq("id", targetEmployeeIdInput).single();
     if (!targetEmp || targetEmp.region_id !== employee.region_id || targetEmp.id === employee.id) {
@@ -85,6 +89,23 @@ export async function POST(req: Request) {
       (r) => r.role === "Driver/Rigger" || r.role === "Self DT"
     );
     if (!targetOkDriver) return NextResponse.json({ message: "Target employee must be Driver/Rigger or Self DT" }, { status: 400 });
+    if (targetTeamIdInput !== REGION_FALLBACK_TEAM_ID) {
+      const { data: tm } = await supabase
+        .from("teams")
+        .select("id, region_id, driver_rigger_employee_id")
+        .eq("id", targetTeamIdInput)
+        .maybeSingle();
+      if (!tm || tm.region_id !== employee.region_id) {
+        return NextResponse.json({ message: "Invalid team for vehicle swap" }, { status: 400 });
+      }
+      if (tm.driver_rigger_employee_id !== targetEmp.id) {
+        return NextResponse.json(
+          { message: "Selected employee must be the driver/rigger on the chosen team" },
+          { status: 400 }
+        );
+      }
+      target_team_id = tm.id as string;
+    }
     const { data: ownVehicle } = await supabase.from("vehicle_assignments").select("vehicle_id").eq("employee_id", employee.id).maybeSingle();
     const { data: targetVehicle } = await supabase.from("vehicle_assignments").select("vehicle_id").eq("employee_id", targetEmp.id).maybeSingle();
     if (!ownVehicle?.vehicle_id || !targetVehicle?.vehicle_id) {
@@ -130,6 +151,9 @@ export async function POST(req: Request) {
 
   if (request_type === "asset_transfer") {
     if (!isDt) return NextResponse.json({ message: "Only DT can request asset transfer" }, { status: 400 });
+    if (!targetTeamIdInput) {
+      return NextResponse.json({ message: "Choose a team, then the DT for asset transfer" }, { status: 400 });
+    }
     if (!assetIdInput || !targetEmployeeIdInput) {
       return NextResponse.json({ message: "Asset and target DT are required" }, { status: 400 });
     }
@@ -140,6 +164,23 @@ export async function POST(req: Request) {
     const { data: targetRoleRowsAt } = await supabase.from("employee_roles").select("role").eq("employee_id", targetEmp.id);
     const targetOkDt = (targetRoleRowsAt ?? []).some((r) => r.role === "DT" || r.role === "Self DT");
     if (!targetOkDt) return NextResponse.json({ message: "Target employee must be DT or Self DT" }, { status: 400 });
+    if (targetTeamIdInput !== REGION_FALLBACK_TEAM_ID) {
+      const { data: tm } = await supabase
+        .from("teams")
+        .select("id, region_id, dt_employee_id")
+        .eq("id", targetTeamIdInput)
+        .maybeSingle();
+      if (!tm || tm.region_id !== employee.region_id) {
+        return NextResponse.json({ message: "Invalid team for asset transfer" }, { status: 400 });
+      }
+      if (tm.dt_employee_id !== targetEmp.id) {
+        return NextResponse.json(
+          { message: "Selected employee must be the DT on the chosen team" },
+          { status: 400 }
+        );
+      }
+      target_team_id = tm.id as string;
+    }
 
     const { data: asset } = await supabase
       .from("assets")
