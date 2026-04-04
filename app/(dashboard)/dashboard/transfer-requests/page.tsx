@@ -20,6 +20,19 @@ export type TeamMemberPick = {
   members: { id: string; full_name: string }[];
 };
 
+function flattenExcludedTeams(teams: TeamMemberPick[], excludeId: string): { id: string; full_name: string }[] {
+  const map = new Map<string, string>();
+  for (const t of teams) {
+    for (const m of t.members) {
+      if (m.id === excludeId) continue;
+      if (!map.has(m.id)) map.set(m.id, m.full_name);
+    }
+  }
+  return [...map.entries()]
+    .map(([id, full_name]) => ({ id, full_name }))
+    .sort((a, b) => a.full_name.localeCompare(b.full_name));
+}
+
 export default async function TransferRequestsPage() {
   const userClient = await createServerSupabaseClient();
   const {
@@ -171,15 +184,6 @@ export default async function TransferRequestsPage() {
     ...assetTransferTeams.flatMap((x) => x.members.map((m) => ({ id: m.id, full_name: m.full_name }))),
   ]);
 
-  const teamsForDriveSwap = (regionTeamsFull ?? [])
-    .filter((t) => t.driver_rigger_employee_id != null)
-    .map((t) => ({
-      id: t.id as string,
-      name: (typeof t.name === "string" && t.name.trim()) ? t.name.trim() : "Team",
-      driver_rigger_employee_id: t.driver_rigger_employee_id as string,
-    }))
-    .sort((a, b) => a.name.localeCompare(b.name));
-
   const teamLabels: Record<string, string> = {};
   for (const t of regionTeamsFull ?? []) {
     teamLabels[t.id as string] = (typeof t.name === "string" && t.name.trim()) ? t.name.trim() : "Team";
@@ -227,10 +231,10 @@ export default async function TransferRequestsPage() {
           id: e.id,
           full_name: e.full_name ?? e.id,
         }))}
-        vehicleSwapTeams={vehicleSwapTeams}
-        assetTransferTeams={assetTransferTeams}
+        vehicleSwapDrivers={flattenExcludedTeams(vehicleSwapTeams, employee.id)}
+        assetTransferDts={flattenExcludedTeams(assetTransferTeams, employee.id)}
+        driveSwapDrivers={flattenExcludedTeams(vehicleSwapTeams, employee.id)}
         teamLabels={teamLabels}
-        teams={teamsForDriveSwap}
         myAssets={(myAssets ?? []).map((a) => ({ id: a.id, name: a.name, serial: a.serial }))}
         replacementVehicles={(replacementVehicles ?? []).map((v) => ({ id: v.id, plate_number: v.plate_number, make: v.make, model: v.model }))}
       />

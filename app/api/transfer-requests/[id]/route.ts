@@ -134,19 +134,19 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     }
 
     if (requestData.request_type === "drive_swap") {
-      const targetTeamId = requestData.target_team_id;
-      if (!targetTeamId) return NextResponse.json({ message: "Target team is required" }, { status: 400 });
+      const targetEmployeeId = requestData.target_employee_id;
+      if (!targetEmployeeId) return NextResponse.json({ message: "Target driver missing for drive swap" }, { status: 400 });
 
       const { data: ownTeam } = await supabase
         .from("teams")
         .select("id, driver_rigger_employee_id, region_id")
         .eq("driver_rigger_employee_id", requestData.requester_employee_id)
-        .single();
+        .maybeSingle();
       const { data: targetTeam } = await supabase
         .from("teams")
         .select("id, driver_rigger_employee_id, region_id")
-        .eq("id", targetTeamId)
-        .single();
+        .eq("driver_rigger_employee_id", targetEmployeeId)
+        .maybeSingle();
 
       if (
         !ownTeam?.id ||
