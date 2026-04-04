@@ -1,7 +1,7 @@
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { getDataClient } from "@/lib/supabase/server";
 import { NextResponse } from "next/server";
-import { targetEmployeeIsOnPmTeam } from "@/lib/pm-team-assignees";
+import { targetEmployeeIsInPmAssignmentScope } from "@/lib/pm-team-assignees";
 
 /**
  * PATCH: PM fulfills or rejects a QC replacement request.
@@ -50,15 +50,19 @@ export async function PATCH(
     return NextResponse.json({ message: "Request already resolved" }, { status: 400 });
   }
 
-  const inScope = await targetEmployeeIsOnPmTeam(
+  const inScope = await targetEmployeeIsInPmAssignmentScope(
     supabase,
     pmEmployee,
     requestRow.for_employee_id,
-    session.user.id
+    session.user.id,
+    { excludeQc: false, requireVehicleRoles: false }
   );
   if (!inScope) {
     return NextResponse.json(
-      { message: "This request is not for a team member in your scope (team region/project in Admin, or project PM)." },
+      {
+        message:
+          "This request is not for someone in your scope (team DT/Driver-Rigger, or an employee in one of your regions).",
+      },
       { status: 403 }
     );
   }

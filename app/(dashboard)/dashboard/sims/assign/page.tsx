@@ -2,12 +2,17 @@ import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { getDataClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import Link from "next/link";
-import { loadPmTeamAssigneeOptions } from "@/lib/pm-team-assignees";
+import {
+  loadPmTeamAssigneeOptions,
+  loadPmRegionEmployeeOptions,
+} from "@/lib/pm-team-assignees";
 import { PmAssignSimsClient } from "./PmAssignSimsClient";
 
 export default async function PmAssignSimsPage() {
   const userClient = await createServerSupabaseClient();
-  const { data: { session } } = await userClient.auth.getSession();
+  const {
+    data: { session },
+  } = await userClient.auth.getSession();
   if (!session?.user?.id) redirect("/login");
 
   const supabase = await getDataClient();
@@ -26,36 +31,40 @@ export default async function PmAssignSimsPage() {
     .maybeSingle();
   if (!pmRole) redirect("/dashboard");
 
+  const pmCtx = {
+    id: employee.id,
+    region_id: employee.region_id,
+    project_id: employee.project_id,
+  };
+
   const { data: sims } = await supabase
     .from("sim_cards")
     .select("id, operator, service_type, sim_number, phone_number, status")
     .eq("status", "Available")
     .order("sim_number");
 
-  const assignees = await loadPmTeamAssigneeOptions(
-    supabase,
-    {
-      id: employee.id,
-      region_id: employee.region_id,
-      project_id: employee.project_id,
-    },
-    session.user.id
-  );
+  const teamAssignees = await loadPmTeamAssigneeOptions(supabase, pmCtx, session.user.id);
+  const regionAssignees = await loadPmRegionEmployeeOptions(supabase, pmCtx, session.user.id, {
+    excludeQc: true,
+    vehicleDriversOnly: false,
+  });
 
   return (
     <div className="space-y-5">
       <nav className="flex items-center gap-2 text-sm text-zinc-500">
-        <Link href="/dashboard" className="hover:text-zinc-900">Dashboard</Link>
+        <Link href="/dashboard" className="hover:text-zinc-900">
+          Dashboard
+        </Link>
         <span aria-hidden>/</span>
         <span className="text-zinc-900">Assign SIMs</span>
       </nav>
       <div className="rounded-2xl border border-indigo-200 bg-gradient-to-r from-indigo-50 to-violet-50 p-5 sm:p-6">
-        <h1 className="text-2xl font-semibold text-zinc-900">Assign SIMs to team members</h1>
+        <h1 className="text-2xl font-semibold text-zinc-900">Assign SIMs</h1>
         <p className="mt-1 text-sm text-zinc-600">
-          PM-only assignment. Choose a DT or Driver/Rigger on a team (team region and project come from Admin).
+          By team: DT or Driver/Rigger on a team in your PM scope. By region: any active employee in your regions (QC excluded).
         </p>
       </div>
-      <PmAssignSimsClient sims={(sims ?? []).map((s) => ({ ...s }))} assignees={assignees} />
+      <PmAssignSimsClient sims={(sims ?? []).map((s) => ({ ...s }))} teamAssignees={teamAssignees} regionAssignees={regionAssignees} />
     </div>
   );
 }

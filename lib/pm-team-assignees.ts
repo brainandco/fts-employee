@@ -1,6 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-/** PM employee row (optional region/project on the employee record — used only to narrow teams when set). */
+/** PM employee row (primary region/project on employees record; extras come from pm_region_assignments / pm_employee_projects). */
 export type PmContext = {
   id: string;
   region_id: string | null;
@@ -14,28 +14,57 @@ type TeamRow = {
   driver_rigger_employee_id: string | null;
 };
 
+/** Primary + extra PM regions (for asset pools and region-based assignment). */
+export async function loadPmScopeIds(
+  supabase: SupabaseClient,
+  pm: PmContext,
+  authUserId: string | null
+): Promise<{ allowedRegionIds: string[]; allowedProjectIds: string[] }> {
+  const { data: extraRegions } = await supabase
+    .from("pm_region_assignments")
+    .select("region_id")
+    .eq("employee_id", pm.id);
+
+  const { data: pmProjects } = await supabase
+    .from("pm_employee_projects")
+    .select("project_id")
+    .eq("employee_id", pm.id);
+
+  const allowedRegionIds = [
+    ...new Set(
+      [...(pm.region_id ? [pm.region_id] : []), ...((extraRegions ?? []).map((r) => r.region_id as string).filter(Boolean))]
+    ),
+  ];
+
+  const fromJunction = (pmProjects ?? []).map((p) => p.project_id as string).filter(Boolean);
+  const { data: authProjects } = authUserId
+    ? await supabase.from("projects").select("id").eq("pm_user_id", authUserId)
+    : { data: [] };
+  const fromAuth = (authProjects ?? []).map((p) => p.id as string).filter(Boolean);
+
+  const allowedProjectIds = [...new Set([...fromJunction, ...fromAuth])];
+
+  return { allowedRegionIds, allowedProjectIds };
+}
+
 /**
- * Teams the PM may assign into. Scope is based on **team** region/project (Admin), not on field employees’ personal region rows.
- *
- * - When the PM employee has `region_id` (and optionally `project_id`), include teams whose `teams.region_id` matches, and when `project_id` is set on the PM, `teams.project_id` must match.
- * - Always merge teams under **projects** where `projects.pm_user_id` is this auth user (portal login), so PM access works even when region is only stored on teams/projects.
+ * Teams the PM may assign into. Union of:
+ * - Teams on any project in pm_employee_projects ∪ projects.pm_user_id (portal user).
+ * - Teams in primary region ∪ pm_region_assignments (same region, different projects).
  */
 async function fetchTeamsForPmScope(
   supabase: SupabaseClient,
   pm: PmContext,
   authUserId: string | null
 ): Promise<TeamRow[]> {
+  const { allowedRegionIds, allowedProjectIds } = await loadPmScopeIds(supabase, pm, authUserId);
   const byId = new Map<string, TeamRow>();
 
-  if (pm.region_id) {
-    let q = supabase
+  if (allowedProjectIds.length > 0) {
+    const { data, error } = await supabase
       .from("teams")
       .select("id, name, dt_employee_id, driver_rigger_employee_id")
-      .eq("region_id", pm.region_id);
-    if (pm.project_id) {
-      q = q.eq("project_id", pm.project_id);
-    }
-    const { data, error } = await q;
+      .in("project_id", allowedProjectIds);
     if (!error) {
       for (const t of data ?? []) {
         byId.set(t.id as string, t as TeamRow);
@@ -43,15 +72,13 @@ async function fetchTeamsForPmScope(
     }
   }
 
-  if (authUserId) {
-    const { data: projs } = await supabase.from("projects").select("id").eq("pm_user_id", authUserId);
-    const pids = (projs ?? []).map((p) => p.id as string).filter(Boolean);
-    if (pids.length) {
-      const { data: teamsB } = await supabase
-        .from("teams")
-        .select("id, name, dt_employee_id, driver_rigger_employee_id")
-        .in("project_id", pids);
-      for (const t of teamsB ?? []) {
+  if (allowedRegionIds.length > 0) {
+    const { data, error } = await supabase
+      .from("teams")
+      .select("id, name, dt_employee_id, driver_rigger_employee_id")
+      .in("region_id", allowedRegionIds);
+    if (!error) {
+      for (const t of data ?? []) {
         byId.set(t.id as string, t as TeamRow);
       }
     }
@@ -110,7 +137,7 @@ export async function loadPmTeamAssigneeOptions(
   return out.sort((a, b) => a.label.localeCompare(b.label));
 }
 
-/** True if the target is DT or Driver/Rigger on a team in the PM’s assignable scope (team region/project + project PM). */
+/** True if the target is DT or Driver/Rigger on a team in the PM’s assignable scope. */
 export async function targetEmployeeIsOnPmTeam(
   supabase: SupabaseClient,
   pm: PmContext,
@@ -122,4 +149,134 @@ export async function targetEmployeeIsOnPmTeam(
     (t) =>
       t.dt_employee_id === targetEmployeeId || t.driver_rigger_employee_id === targetEmployeeId
   );
+}
+
+export type PmRegionAssigneeOptions = {
+  /** Exclude employees with the QC role (assets, SIMs). */
+  excludeQc: boolean;
+  /** Only Driver/Rigger or Self DT (vehicles). */
+  vehicleDriversOnly: boolean;
+};
+
+/**
+ * Active employees in the PM’s allowed regions (primary + pm_region_assignments), excluding self.
+ * Optional QC exclusion and vehicle-driver filter.
+ */
+export async function loadPmRegionEmployeeOptions(
+  supabase: SupabaseClient,
+  pm: PmContext,
+  authUserId: string | null,
+  options: PmRegionAssigneeOptions
+): Promise<{ id: string; label: string }[]> {
+  const { allowedRegionIds } = await loadPmScopeIds(supabase, pm, authUserId);
+  if (allowedRegionIds.length === 0) return [];
+
+  const { data: emps, error } = await supabase
+    .from("employees")
+    .select("id, full_name, region_id")
+    .in("region_id", allowedRegionIds)
+    .eq("status", "ACTIVE")
+    .neq("id", pm.id);
+  if (error || !emps?.length) return [];
+
+  let filtered = [...emps];
+
+  if (options.excludeQc) {
+    const ids = filtered.map((e) => e.id as string);
+    const { data: qcRows } = await supabase.from("employee_roles").select("employee_id").eq("role", "QC").in("employee_id", ids);
+    const qcSet = new Set((qcRows ?? []).map((r) => r.employee_id as string));
+    filtered = filtered.filter((e) => !qcSet.has(e.id as string));
+  }
+
+  if (options.vehicleDriversOnly) {
+    const ids = filtered.map((e) => e.id as string);
+    if (ids.length === 0) return [];
+    const { data: roleRows } = await supabase
+      .from("employee_roles")
+      .select("employee_id")
+      .in("employee_id", ids)
+      .in("role", ["Driver/Rigger", "Self DT"]);
+    const ok = new Set((roleRows ?? []).map((r) => r.employee_id as string));
+    filtered = filtered.filter((e) => ok.has(e.id as string));
+  }
+
+  const regionIds = [...new Set(filtered.map((e) => e.region_id).filter(Boolean))] as string[];
+  const { data: regions } = regionIds.length
+    ? await supabase.from("regions").select("id, name").in("id", regionIds)
+    : { data: [] };
+  const regionMap = new Map((regions ?? []).map((r) => [r.id as string, (r.name as string) || ""]));
+
+  return filtered
+    .map((e) => {
+      const rid = e.region_id as string | null;
+      const rn = rid ? regionMap.get(rid) : "";
+      const suffix = rn ? ` — ${rn}` : "";
+      return {
+        id: e.id as string,
+        label: `${(e.full_name as string) || e.id}${suffix}`,
+      };
+    })
+    .sort((a, b) => a.label.localeCompare(b.label));
+}
+
+export type PmRegionTargetValidation = {
+  excludeQc: boolean;
+  requireVehicleRoles: boolean;
+};
+
+/** True if the target is an active employee in one of the PM’s regions and passes role gates. */
+export async function targetEmployeeIsInPmRegionScope(
+  supabase: SupabaseClient,
+  pm: PmContext,
+  targetEmployeeId: string,
+  authUserId: string | null,
+  validation: PmRegionTargetValidation
+): Promise<boolean> {
+  const { allowedRegionIds } = await loadPmScopeIds(supabase, pm, authUserId);
+  if (allowedRegionIds.length === 0) return false;
+
+  const { data: target } = await supabase
+    .from("employees")
+    .select("id, region_id, status")
+    .eq("id", targetEmployeeId)
+    .maybeSingle();
+  if (!target || target.status !== "ACTIVE") return false;
+  if (target.id === pm.id) return false;
+  const tr = target.region_id as string | null;
+  if (!tr || !allowedRegionIds.includes(tr)) return false;
+
+  if (validation.excludeQc) {
+    const { data: qc } = await supabase
+      .from("employee_roles")
+      .select("role")
+      .eq("employee_id", targetEmployeeId)
+      .eq("role", "QC")
+      .maybeSingle();
+    if (qc) return false;
+  }
+
+  if (validation.requireVehicleRoles) {
+    const { data: vr } = await supabase
+      .from("employee_roles")
+      .select("role")
+      .eq("employee_id", targetEmployeeId)
+      .in("role", ["Driver/Rigger", "Self DT"])
+      .limit(1);
+    if (!(vr ?? []).length) return false;
+  }
+
+  return true;
+}
+
+/** Team slot or region employee — used when fulfilling QC requests, etc. */
+export async function targetEmployeeIsInPmAssignmentScope(
+  supabase: SupabaseClient,
+  pm: PmContext,
+  targetEmployeeId: string,
+  authUserId: string | null,
+  regionValidation: PmRegionTargetValidation
+): Promise<boolean> {
+  const onTeam = await targetEmployeeIsOnPmTeam(supabase, pm, targetEmployeeId, authUserId);
+  if (onTeam) return true;
+  return targetEmployeeIsInPmRegionScope(supabase, pm, targetEmployeeId, authUserId, regionValidation);
 }

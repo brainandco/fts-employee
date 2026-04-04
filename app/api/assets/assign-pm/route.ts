@@ -1,7 +1,10 @@
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { getDataClient } from "@/lib/supabase/server";
 import { NextResponse } from "next/server";
-import { targetEmployeeIsOnPmTeam } from "@/lib/pm-team-assignees";
+import {
+  targetEmployeeIsOnPmTeam,
+  targetEmployeeIsInPmRegionScope,
+} from "@/lib/pm-team-assignees";
 import { upsertPendingReceipts } from "@/lib/resource-receipts";
 
 /**
@@ -14,6 +17,7 @@ export async function POST(req: Request) {
   if (!session) return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
 
   const body = await req.json().catch(() => ({}));
+  const assignmentMode = body.assignment_mode === "region" ? "region" : "team";
   const assetIds = Array.isArray(body.asset_ids) ? body.asset_ids.filter((id: unknown) => typeof id === "string") : [];
   const employeeId = typeof body.employee_id === "string" ? body.employee_id.trim() : "";
   if (!employeeId || assetIds.length === 0) {
@@ -54,12 +58,20 @@ export async function POST(req: Request) {
     return NextResponse.json({ message: "Assets cannot be assigned to QC." }, { status: 400 });
   }
 
-  const onTeam = await targetEmployeeIsOnPmTeam(supabase, pmEmployee, employeeId, session.user.id);
-  if (!onTeam) {
+  const inScope =
+    assignmentMode === "team"
+      ? await targetEmployeeIsOnPmTeam(supabase, pmEmployee, employeeId, session.user.id)
+      : await targetEmployeeIsInPmRegionScope(supabase, pmEmployee, employeeId, session.user.id, {
+          excludeQc: true,
+          requireVehicleRoles: false,
+        });
+  if (!inScope) {
     return NextResponse.json(
       {
         message:
-          "Assign only to a DT or Driver/Rigger on a team in your scope (team region/project in Admin, or project PM on the project).",
+          assignmentMode === "team"
+            ? "Assign only to a DT or Driver/Rigger on a team in your scope (team region/project in Admin, or project PM on the project)."
+            : "Assign only to an active employee in one of your regions (primary or extra regions from Admin). QC cannot receive assets.",
       },
       { status: 400 }
     );

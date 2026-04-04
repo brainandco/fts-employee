@@ -1,7 +1,11 @@
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { getDataClient } from "@/lib/supabase/server";
 import { NextResponse } from "next/server";
-import { targetEmployeeIsOnPmTeam } from "@/lib/pm-team-assignees";
+import {
+  targetEmployeeIsOnPmTeam,
+  targetEmployeeIsInPmRegionScope,
+  loadPmScopeIds,
+} from "@/lib/pm-team-assignees";
 import { upsertPendingReceipts } from "@/lib/resource-receipts";
 
 /** PM assigns available vehicles to Driver/Rigger or Self DT on a team in scope (team region/project; projects where user is PM). */
@@ -11,6 +15,7 @@ export async function POST(req: Request) {
   if (!session) return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
 
   const body = await req.json().catch(() => ({}));
+  const assignmentMode = body.assignment_mode === "region" ? "region" : "team";
   const vehicleIds = Array.isArray(body.vehicle_ids) ? body.vehicle_ids.filter((id: unknown) => typeof id === "string") : [];
   const employeeId = typeof body.employee_id === "string" ? body.employee_id.trim() : "";
   if (!employeeId || vehicleIds.length === 0) {
@@ -41,12 +46,20 @@ export async function POST(req: Request) {
     .single();
   if (!toEmployee) return NextResponse.json({ message: "Target employee not found" }, { status: 404 });
 
-  const onTeam = await targetEmployeeIsOnPmTeam(supabase, pmEmployee, employeeId, session.user.id);
-  if (!onTeam) {
+  const inScope =
+    assignmentMode === "team"
+      ? await targetEmployeeIsOnPmTeam(supabase, pmEmployee, employeeId, session.user.id)
+      : await targetEmployeeIsInPmRegionScope(supabase, pmEmployee, employeeId, session.user.id, {
+          excludeQc: false,
+          requireVehicleRoles: true,
+        });
+  if (!inScope) {
     return NextResponse.json(
       {
         message:
-          "Assign only to a team member (DT or Driver/Rigger) on a team in your scope (team region/project in Admin, or project PM).",
+          assignmentMode === "team"
+            ? "Assign only to a team member (DT or Driver/Rigger) on a team in your scope (team region/project in Admin, or project PM)."
+            : "Assign only to Driver/Rigger or Self DT in one of your regions (primary or extra regions from Admin).",
       },
       { status: 400 }
     );
@@ -82,7 +95,14 @@ export async function POST(req: Request) {
     .in("id", vehicleIds)
     .eq("status", "Available");
 
-  const eligible = (vehicles ?? []).filter((v) => !alreadyAssigned.has(v.id) && (!v.assigned_region_id || v.assigned_region_id === pmEmployee.region_id));
+  const { allowedRegionIds } = await loadPmScopeIds(supabase, pmEmployee, session.user.id);
+  const eligible = (vehicles ?? []).filter((v) => {
+    if (alreadyAssigned.has(v.id)) return false;
+    const rid = v.assigned_region_id as string | null;
+    if (!rid) return true;
+    if (allowedRegionIds.length > 0) return allowedRegionIds.includes(rid);
+    return rid === pmEmployee.region_id;
+  });
   if (eligible.length === 0) {
     return NextResponse.json({ message: "No selected vehicles are available for assignment." }, { status: 400 });
   }
@@ -95,7 +115,7 @@ export async function POST(req: Request) {
     });
     await supabase.from("vehicles").update({
       status: "Assigned",
-      assigned_region_id: pmEmployee.region_id,
+      assigned_region_id: toEmployee.region_id ?? pmEmployee.region_id,
       assigned_by: session.user.id,
       assigned_at: now,
     }).eq("id", v.id);
