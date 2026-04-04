@@ -32,6 +32,8 @@ function requestTypeLabel(type: RequestType): string {
   return "Asset Transfer";
 }
 
+type TargetGroup = { label: string; options: EmployeeOption[] };
+
 export function TransferRequestsClient({
   canRequest,
   canReview,
@@ -40,6 +42,8 @@ export function TransferRequestsClient({
   meId,
   requests,
   employees,
+  targetEmployeeGroupsVehicle,
+  targetEmployeeGroupsAsset,
   teams,
   myAssets,
   replacementVehicles,
@@ -50,7 +54,12 @@ export function TransferRequestsClient({
   canRequestVehicleFlows: boolean;
   meId: string;
   requests: TransferRequest[];
+  /** Names for display (requests list, etc.) */
   employees: EmployeeOption[];
+  /** Vehicle swap: Driver/Rigger or Self DT — team peers first, then region */
+  targetEmployeeGroupsVehicle: TargetGroup[];
+  /** Asset transfer: DT or Self DT — team peers first, then region */
+  targetEmployeeGroupsAsset: TargetGroup[];
   teams: TeamOption[];
   myAssets: AssetOption[];
   replacementVehicles: VehicleOption[];
@@ -101,6 +110,39 @@ export function TransferRequestsClient({
       setRequestType(allowedRequestTypes[0] ?? "asset_transfer");
     }
   }, [allowedRequestTypes, requestType]);
+
+  const vehicleTargetGroups = useMemo(() => {
+    return targetEmployeeGroupsVehicle
+      .map((g) => ({
+        label: g.label,
+        options: g.options.filter((e) => e.id !== meId),
+      }))
+      .filter((g) => g.options.length > 0);
+  }, [targetEmployeeGroupsVehicle, meId]);
+
+  const assetTargetGroups = useMemo(() => {
+    return targetEmployeeGroupsAsset
+      .map((g) => ({
+        label: g.label,
+        options: g.options.filter((e) => e.id !== meId),
+      }))
+      .filter((g) => g.options.length > 0);
+  }, [targetEmployeeGroupsAsset, meId]);
+
+  const targetGroupsForForm =
+    requestType === "vehicle_swap" ? vehicleTargetGroups : requestType === "asset_transfer" ? assetTargetGroups : [];
+
+  const targetEmployeeIdsInForm = useMemo(() => {
+    const groups =
+      requestType === "vehicle_swap" ? vehicleTargetGroups : requestType === "asset_transfer" ? assetTargetGroups : [];
+    return new Set(groups.flatMap((g) => g.options.map((o) => o.id)));
+  }, [requestType, vehicleTargetGroups, assetTargetGroups]);
+
+  useEffect(() => {
+    if (targetEmployeeId && !targetEmployeeIdsInForm.has(targetEmployeeId)) {
+      setTargetEmployeeId("");
+    }
+  }, [targetEmployeeId, targetEmployeeIdsInForm]);
 
   const incoming = useMemo(
     () => requests.filter((r) => r.requester_employee_id !== meId),
@@ -188,14 +230,31 @@ export function TransferRequestsClient({
             </label>
 
             {(requestType === "vehicle_swap" || requestType === "asset_transfer") && (
-              <label className="text-sm text-zinc-700">
-                Target employee
+              <label className="text-sm text-zinc-700 md:col-span-2">
+                {requestType === "vehicle_swap" ? "Target employee (driver)" : "Target employee (DT)"}
                 <select className="mt-1 w-full rounded border border-zinc-300 px-3 py-2" value={targetEmployeeId} onChange={(e) => setTargetEmployeeId(e.target.value)}>
                   <option value="">Select employee</option>
-                  {employees.filter((e) => e.id !== meId).map((e) => (
-                    <option key={e.id} value={e.id}>{e.full_name}</option>
+                  {targetGroupsForForm.map((g) => (
+                    <optgroup key={g.label} label={g.label}>
+                      {g.options.map((e) => (
+                        <option key={e.id} value={e.id}>
+                          {e.full_name}
+                        </option>
+                      ))}
+                    </optgroup>
                   ))}
                 </select>
+                {targetGroupsForForm.length > 0 ? (
+                  <p className="mt-1 text-xs text-zinc-500">
+                    Same team(s): people on your field team(s). Region: other {requestType === "vehicle_swap" ? "Driver/Rigger or Self DT" : "DT or Self DT"} in your region.
+                  </p>
+                ) : (
+                  <p className="mt-1 text-xs text-amber-700">
+                    {requestType === "vehicle_swap"
+                      ? "No eligible targets: no other Driver/Rigger or Self DT on your team(s) or in your region."
+                      : "No eligible targets: no other DT or Self DT on your team(s) or in your region."}
+                  </p>
+                )}
               </label>
             )}
 
