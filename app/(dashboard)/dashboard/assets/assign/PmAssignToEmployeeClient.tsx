@@ -13,9 +13,9 @@ type Asset = {
   imei_2: string | null;
   status: string;
 };
-type Employee = { id: string; full_name: string };
+type Assignee = { id: string; label: string };
 
-export function PmAssignToEmployeeClient({ assets, employees }: { assets: Asset[]; employees: Employee[] }) {
+export function PmAssignToEmployeeClient({ assets, assignees }: { assets: Asset[]; assignees: Assignee[] }) {
   const router = useRouter();
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [employeeId, setEmployeeId] = useState("");
@@ -72,7 +72,7 @@ export function PmAssignToEmployeeClient({ assets, employees }: { assets: Asset[
       return;
     }
     if (!employeeId.trim()) {
-      setError("Select an employee.");
+      setError("Select a team member.");
       return;
     }
     setSubmitting(true);
@@ -104,12 +104,12 @@ export function PmAssignToEmployeeClient({ assets, employees }: { assets: Asset[
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-end gap-4 rounded-2xl border border-zinc-200 bg-white p-4">
-        <div className="min-w-[200px]">
-          <label className="mb-1 block text-sm font-medium text-zinc-700">Assign to employee (same region only)</label>
+        <div className="min-w-[280px] max-w-xl">
+          <label className="mb-1 block text-sm font-medium text-zinc-700">Assign to team member (DT or Driver/Rigger)</label>
           <select value={employeeId} onChange={(e) => setEmployeeId(e.target.value)} className="w-full rounded border border-zinc-300 px-3 py-2 text-sm">
-            <option value="">— Select employee</option>
-            {employees.map((emp) => (
-              <option key={emp.id} value={emp.id}>{emp.full_name}</option>
+            <option value="">— Select team member</option>
+            {assignees.map((a) => (
+              <option key={a.id} value={a.id}>{a.label}</option>
             ))}
           </select>
         </div>
@@ -122,7 +122,9 @@ export function PmAssignToEmployeeClient({ assets, employees }: { assets: Asset[
           {submitting ? "Assigning…" : `Assign ${selected.size} selected`}
         </button>
         <p className="text-xs text-zinc-500">Showing: <span className="font-medium text-zinc-700">{activeType}</span> ({filteredAssets.length})</p>
-        {employees.length === 0 && <p className="text-sm text-amber-600">No employees in your region (excluding QC).</p>}
+        {assignees.length === 0 && (
+          <p className="text-sm text-amber-600">No team members available. Configure teams in the Admin portal for your region and project.</p>
+        )}
       </div>
       <div className="rounded-2xl border border-zinc-200 bg-white p-3">
         <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">Asset types</p>

@@ -38,6 +38,7 @@ export default async function DashboardPage() {
   const isQc = (myRoles ?? []).some((r) => r.role === "QC");
   const isPm = (myRoles ?? []).some((r) => r.role === "Project Manager");
   const isPp = (myRoles ?? []).some((r) => r.role === "PP");
+  const isProjectCoordinator = (myRoles ?? []).some((r) => r.role === "Project Coordinator");
   const isDriverOrSelfDt = (myRoles ?? []).some((r) => r.role === "Driver/Rigger" || r.role === "Self DT");
 
   const [regionRes, assetsRes, simsRes, assignmentsRes, tasksRes, approvalsRes, regionEmployeesRes] = await Promise.all([
@@ -97,7 +98,15 @@ export default async function DashboardPage() {
             </p>
           </div>
           <span className="rounded-full bg-white/80 px-3 py-1 text-xs font-semibold text-indigo-700 ring-1 ring-indigo-200">
-            {isPm ? "Project Manager" : isQc ? "QC" : isPp ? "Post Processor" : "Team Member"}
+            {isPm
+              ? "Project Manager"
+              : isQc
+                ? "QC"
+                : isPp
+                  ? "Post Processor"
+                  : isProjectCoordinator
+                    ? "Project Coordinator"
+                    : "Team Member"}
           </span>
         </div>
         <div className="mt-5 grid grid-cols-2 gap-3 lg:grid-cols-4">

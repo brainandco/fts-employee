@@ -1,9 +1,10 @@
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { getDataClient } from "@/lib/supabase/server";
 import { NextResponse } from "next/server";
+import { targetEmployeeIsOnPmTeam } from "@/lib/pm-team-assignees";
 
 /**
- * POST /api/assets/assign-pm — PM assigns available assets to one employee (not QC), same region.
+ * POST /api/assets/assign-pm — PM assigns available assets to a DT or Driver/Rigger on a team in their region (and project when set).
  * Body: { asset_ids: string[], employee_id: string }
  */
 export async function POST(req: Request) {
@@ -22,7 +23,7 @@ export async function POST(req: Request) {
   const email = (session.user.email ?? "").trim();
   const { data: pmEmployee } = await supabase
     .from("employees")
-    .select("id, region_id")
+    .select("id, region_id, project_id")
     .eq("email", email)
     .maybeSingle();
   if (!pmEmployee) return NextResponse.json({ message: "Employee not found" }, { status: 403 });
@@ -45,13 +46,25 @@ export async function POST(req: Request) {
     return NextResponse.json({ message: "You can only assign to employees in your region" }, { status: 400 });
   }
 
-  const { data: disallowedRole } = await supabase
+  const { data: qcRole } = await supabase
     .from("employee_roles")
     .select("role")
     .eq("employee_id", employeeId)
-    .in("role", ["QC", "Driver/Rigger"]);
-  if ((disallowedRole ?? []).length) {
-    return NextResponse.json({ message: "Assets cannot be assigned to QC or Driver/Rigger." }, { status: 400 });
+    .eq("role", "QC")
+    .maybeSingle();
+  if (qcRole) {
+    return NextResponse.json({ message: "Assets cannot be assigned to QC." }, { status: 400 });
+  }
+
+  const onTeam = await targetEmployeeIsOnPmTeam(supabase, pmEmployee, employeeId);
+  if (!onTeam) {
+    return NextResponse.json(
+      {
+        message:
+          "Assign only to a DT or Driver/Rigger on a team in your region (and project, when your record has a project).",
+      },
+      { status: 400 }
+    );
   }
 
   const { data: availableAssets } = await supabase

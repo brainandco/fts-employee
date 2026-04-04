@@ -1,8 +1,9 @@
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { getDataClient } from "@/lib/supabase/server";
 import { NextResponse } from "next/server";
+import { targetEmployeeIsOnPmTeam } from "@/lib/pm-team-assignees";
 
-/** PM assigns available SIM cards to an employee in same region (non-QC). */
+/** PM assigns available SIM cards to a DT or Driver/Rigger on a team in their region (and project when set). */
 export async function POST(req: Request) {
   const userClient = await createServerSupabaseClient();
   const { data: { session } } = await userClient.auth.getSession();
@@ -18,7 +19,7 @@ export async function POST(req: Request) {
   const supabase = await getDataClient();
   const { data: pmEmployee } = await supabase
     .from("employees")
-    .select("id, region_id")
+    .select("id, region_id, project_id")
     .eq("email", session.user.email ?? "")
     .maybeSingle();
   if (!pmEmployee) return NextResponse.json({ message: "Employee not found" }, { status: 403 });
@@ -48,6 +49,17 @@ export async function POST(req: Request) {
     .eq("role", "QC")
     .maybeSingle();
   if (qcRole) return NextResponse.json({ message: "Cannot assign SIMs to QC." }, { status: 400 });
+
+  const onTeam = await targetEmployeeIsOnPmTeam(supabase, pmEmployee, employeeId);
+  if (!onTeam) {
+    return NextResponse.json(
+      {
+        message:
+          "Assign only to a DT or Driver/Rigger on a team in your region (and project, when your record has a project).",
+      },
+      { status: 400 }
+    );
+  }
 
   const { data: sims } = await supabase
     .from("sim_cards")

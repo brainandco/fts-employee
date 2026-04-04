@@ -41,17 +41,29 @@ export default async function DashboardLayout({
   let isPm = false;
   let isQc = false;
   let isPp = false;
+  let isProjectCoordinator = false;
   if (employee) {
     const { data: roles } = await dataClient.from("employee_roles").select("role").eq("employee_id", employee.id);
     const roleSet = new Set((roles ?? []).map((r) => r.role));
     isPm = roleSet.has("Project Manager");
     isQc = roleSet.has("QC");
     isPp = roleSet.has("PP");
+    isProjectCoordinator = roleSet.has("Project Coordinator");
   }
 
   const displayName = employee?.full_name ?? userProfile?.full_name ?? email;
   const avatarUrl = employee?.avatar_url ?? userProfile?.avatar_url ?? null;
-  const roleBadge = isAdminView ? "Admin" : isPm ? "PM" : isQc ? "QC" : isPp ? "Post Processor" : "Team";
+  const roleBadge = isAdminView
+    ? "Admin"
+    : isPm
+      ? "PM"
+      : isQc
+        ? "QC"
+        : isPp
+          ? "Post Processor"
+          : isProjectCoordinator
+            ? "PC"
+            : "Team";
   const { count: unreadNotifications } = session?.user?.id
     ? await dataClient
         .from("notifications")

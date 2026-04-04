@@ -10,9 +10,9 @@ type Sim = {
   sim_number: string;
   phone_number: string | null;
 };
-type Employee = { id: string; full_name: string };
+type Assignee = { id: string; label: string };
 
-export function PmAssignSimsClient({ sims, employees }: { sims: Sim[]; employees: Employee[] }) {
+export function PmAssignSimsClient({ sims, assignees }: { sims: Sim[]; assignees: Assignee[] }) {
   const router = useRouter();
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [employeeId, setEmployeeId] = useState("");
@@ -37,7 +37,7 @@ export function PmAssignSimsClient({ sims, employees }: { sims: Sim[]; employees
   async function assign() {
     setError("");
     setMessage("");
-    if (!employeeId) return setError("Select an employee.");
+    if (!employeeId) return setError("Select a team member.");
     if (selected.size === 0) return setError("Select at least one SIM.");
     setSubmitting(true);
     const res = await fetch("/api/sims/assign-pm", {
@@ -59,10 +59,10 @@ export function PmAssignSimsClient({ sims, employees }: { sims: Sim[]; employees
       <div className="rounded-2xl border border-zinc-200 bg-white p-4">
         <div className="flex flex-wrap items-end gap-3">
           <div className="min-w-[240px]">
-            <label className="mb-1 block text-sm font-medium text-zinc-700">Assign to employee (same region)</label>
-            <select value={employeeId} onChange={(e) => setEmployeeId(e.target.value)} className="w-full rounded border border-zinc-300 px-3 py-2 text-sm">
-              <option value="">— Select employee</option>
-              {employees.map((e) => <option key={e.id} value={e.id}>{e.full_name}</option>)}
+            <label className="mb-1 block text-sm font-medium text-zinc-700">Assign to team member (DT or Driver/Rigger)</label>
+            <select value={employeeId} onChange={(e) => setEmployeeId(e.target.value)} className="w-full max-w-xl rounded border border-zinc-300 px-3 py-2 text-sm">
+              <option value="">— Select team member</option>
+              {assignees.map((a) => <option key={a.id} value={a.id}>{a.label}</option>)}
             </select>
           </div>
           <button type="button" onClick={assign} disabled={submitting || !employeeId || selected.size === 0} className="rounded bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-50">
