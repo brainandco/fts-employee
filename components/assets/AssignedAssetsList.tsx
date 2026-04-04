@@ -1,5 +1,6 @@
 "use client";
 
+import { canEmployeeInitiateAssetReturn } from "@/lib/asset-return-eligibility";
 import { ReturnAssetButton } from "./ReturnAssetButton";
 
 export type AssignedAssetRow = {
@@ -13,8 +14,6 @@ export type AssignedAssetRow = {
   status: string;
 };
 
-const RETURNABLE = new Set(["Assigned"]);
-
 export function AssignedAssetsList({ assets }: { assets: AssignedAssetRow[] }) {
   if (assets.length === 0) {
     return <p className="mt-2 text-sm text-zinc-500">No assets assigned.</p>;
@@ -23,7 +22,7 @@ export function AssignedAssetsList({ assets }: { assets: AssignedAssetRow[] }) {
   return (
     <ul className="mt-2 list-none space-y-2 text-sm text-zinc-700">
       {assets.map((a) => {
-        const canReturn = RETURNABLE.has(a.status);
+        const canReturn = canEmployeeInitiateAssetReturn(a.status);
         return (
           <li key={a.id} className="flex flex-wrap items-center gap-2 border-b border-zinc-100 pb-2 last:border-0">
             <span className="font-medium">{a.name}</span>
@@ -34,7 +33,7 @@ export function AssignedAssetsList({ assets }: { assets: AssignedAssetRow[] }) {
             {a.imei_2 && <span className="text-zinc-500"> · IMEI2 {a.imei_2}</span>}
             <span
               className={`rounded px-1.5 py-0.5 text-xs ${
-                a.status === "Assigned" ? "bg-emerald-100 text-emerald-800" : "bg-zinc-100 text-zinc-600"
+                canReturn ? "bg-emerald-100 text-emerald-800" : "bg-zinc-100 text-zinc-600"
               }`}
             >
               {a.status}

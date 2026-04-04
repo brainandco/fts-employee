@@ -12,9 +12,15 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
+const appUrl =
+  process.env.NEXT_PUBLIC_APP_URL?.trim() ||
+  (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "");
+
 export const metadata: Metadata = {
-  title: "Employee Portal",
-  description: "FTS Employee Portal",
+  ...(appUrl ? { metadataBase: new URL(appUrl) } : {}),
+  title: "FTS Employee Portal",
+  description: "Fast Technology Solutions – Employee Portal",
+  themeColor: "#0f172a",
 };
 
 export default function RootLayout({
@@ -25,7 +31,7 @@ export default function RootLayout({
   return (
     <html lang="en" className="h-full">
       <body
-        className={`${geistSans.variable} ${geistMono.variable} min-h-full font-sans antialiased selection:bg-violet-200 selection:text-violet-950`}
+        className={`${geistSans.variable} ${geistMono.variable} min-h-full font-sans antialiased selection:bg-teal-200 selection:text-teal-950`}
       >
         {children}
       </body>

@@ -63,7 +63,7 @@ export default async function RegionEmployeesWithAssetsPage() {
         .from("assets")
         .select("id, name, serial, category, status, assigned_to_employee_id")
         .in("assigned_to_employee_id", empIds)
-        .eq("status", "Assigned")
+        .in("status", ["Assigned", "Under_Maintenance", "Damaged", "With_QC"])
         .order("name")
     : { data: [] };
 
@@ -95,13 +95,13 @@ export default async function RegionEmployeesWithAssetsPage() {
             {me.region_id ? (
               <>
                 Same region as you ({regionRow?.name ?? "—"}
-                {regionRow?.code ? ` · ${regionRow.code}` : ""}). Active employees who currently have at least one asset in
-                Assigned status.
+                {regionRow?.code ? ` · ${regionRow.code}` : ""}). Active employees who currently have at least one tool
+                assigned (including under maintenance or damaged while still on hand).
               </>
             ) : (
               <>
                 Employees with <strong>no region</strong> on record (your profile has no region). Active employees who
-                currently have at least one asset in Assigned status.
+                currently have at least one tool assigned (including under maintenance or damaged while still on hand).
               </>
             )}
           </p>

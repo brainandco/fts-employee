@@ -5,8 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { UserAvatar } from "@/components/profile/UserAvatar";
 
-/** Served from `public/New folder/logo.png` (URL-encoded path for the space in the folder name). */
-const EMPLOYEE_PORTAL_LOGO = "/New%20folder/black.png";
+const EMPLOYEE_PORTAL_LOGO = "/New%20Folder/black.png";
 
 export type EmployeeNavSection = { label: string; items: { href: string; label: string }[] };
 
@@ -53,10 +52,10 @@ export function EmployeeSidebar({
           <span className="relative h-8 w-32 shrink-0">
             <Image
               src={EMPLOYEE_PORTAL_LOGO}
-              alt="FTS"
+              alt="Fast Technology Solutions"
               fill
-              className="object-contain object-left brightness-0 invert"
               sizes="128px"
+              className="object-contain object-left brightness-0 invert"
               priority
             />
           </span>
@@ -79,7 +78,7 @@ export function EmployeeSidebar({
                     onClick={handleNav}
                     className={`block rounded-lg px-3 py-2.5 text-sm transition-all duration-200 ${
                       active
-                        ? "bg-indigo-600 font-medium text-white shadow-md shadow-indigo-900/25"
+                        ? "bg-teal-600 font-medium text-white shadow-md shadow-teal-900/25"
                         : "text-slate-300 hover:bg-white/10 hover:text-white"
                     }`}
                   >

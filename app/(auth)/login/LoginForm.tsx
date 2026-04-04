@@ -68,31 +68,32 @@ export function LoginForm() {
 
   return (
     <div className="flex min-h-screen w-full flex-col bg-white lg:flex-row">
-      <aside className="relative order-2 flex min-h-[260px] flex-1 flex-col justify-center overflow-hidden border-t border-indigo-100 bg-indigo-50 px-8 py-10 sm:min-h-[300px] lg:order-1 lg:min-h-screen lg:w-[48%] lg:max-w-none lg:border-r lg:border-t-0 lg:px-12 xl:px-16">
+      <aside className="relative order-2 flex min-h-[260px] flex-1 flex-col justify-center overflow-hidden border-t border-teal-100 bg-teal-50/80 px-8 py-10 sm:min-h-[300px] lg:order-1 lg:min-h-screen lg:w-[48%] lg:max-w-none lg:border-r lg:border-t-0 lg:px-12 xl:px-16">
         <div className="pointer-events-none absolute inset-0 overflow-hidden" aria-hidden>
-          <div className="fts-login-blob absolute -right-10 top-6 h-52 w-52 rounded-full bg-indigo-200/80" />
-          <div className="fts-login-blob fts-login-blob--2 absolute bottom-12 -left-8 h-44 w-44 rounded-full bg-violet-200/70" />
-          <div className="fts-login-blob fts-login-blob--3 absolute left-[35%] top-[38%] h-28 w-28 rounded-full bg-sky-200/60" />
+          <div className="fts-login-blob absolute -right-10 top-6 h-52 w-52 rounded-full bg-teal-200/80" />
+          <div className="fts-login-blob fts-login-blob--2 absolute bottom-12 -left-8 h-44 w-44 rounded-full bg-emerald-200/70" />
+          <div className="fts-login-blob fts-login-blob--3 absolute left-[35%] top-[38%] h-28 w-28 rounded-full bg-cyan-200/55" />
         </div>
 
         <div className="relative z-10 mx-auto w-full max-w-md space-y-6 fts-login-stagger lg:max-w-lg">
           <div className="relative h-12 w-44 sm:h-14 sm:w-52">
             <Image
-              src="/images/black.png"
+              src="/New%20Folder/black.png"
               alt="Fast Technology Solutions"
               fill
+              sizes="(max-width: 1024px) 176px, 208px"
               className="object-contain object-left"
               priority
             />
           </div>
-          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-indigo-700">Field teams</p>
+          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-teal-800">Field teams</p>
           <h2 className="text-3xl font-bold leading-tight tracking-tight text-slate-900 xl:text-4xl">Your work hub</h2>
           <p className="text-base leading-relaxed text-slate-600">
             Access dashboards, assets, tasks, and leave in one place—aligned with how your PM and QC roles collaborate.
           </p>
           <ul className="space-y-4 pt-2">
             <li className="flex gap-3">
-              <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-indigo-200/90 text-indigo-900 shadow-sm">
+              <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-teal-200/90 text-teal-900 shadow-sm">
                 <IconBriefcase />
               </span>
               <span className="text-sm leading-snug text-slate-700">
@@ -101,7 +102,7 @@ export function LoginForm() {
               </span>
             </li>
             <li className="flex gap-3">
-              <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-indigo-200/90 text-indigo-900 shadow-sm">
+              <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-teal-200/90 text-teal-900 shadow-sm">
                 <IconDevice />
               </span>
               <span className="text-sm leading-snug text-slate-700">
@@ -110,7 +111,7 @@ export function LoginForm() {
               </span>
             </li>
             <li className="flex gap-3">
-              <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-indigo-200/90 text-indigo-900 shadow-sm">
+              <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-teal-200/90 text-teal-900 shadow-sm">
                 <IconSpark />
               </span>
               <span className="text-sm leading-snug text-slate-700">
@@ -126,7 +127,7 @@ export function LoginForm() {
         <div className="mx-auto w-full max-w-md fts-auth-card">
           <div className="fts-auth-panel border-slate-200/90 px-8 py-9 shadow-lg shadow-slate-200/50">
             <div className="mb-6 text-center lg:text-left">
-              <p className="mb-1 text-xs font-semibold uppercase tracking-[0.2em] text-indigo-600">Fast Technology Solutions</p>
+              <p className="mb-1 text-xs font-semibold uppercase tracking-[0.2em] text-teal-700">Fast Technology Solutions</p>
               <h1 className="text-2xl font-bold tracking-tight text-slate-900">Employee Portal</h1>
               <p className="mt-2 text-sm text-slate-600">Use the email and password from your administrator.</p>
             </div>

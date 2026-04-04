@@ -82,7 +82,7 @@ export function EmployeeTopBar({
       <button
         type="button"
         onClick={onOpenMenu}
-        className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-700 shadow-sm transition hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700 lg:hidden"
+        className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-700 shadow-sm transition hover:border-teal-200 hover:bg-teal-50 hover:text-teal-800 lg:hidden"
         aria-label="Open navigation menu"
       >
         <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24" aria-hidden>
@@ -91,7 +91,7 @@ export function EmployeeTopBar({
       </button>
 
       <div className="min-w-0 flex-1">
-        <p className="truncate text-xs font-medium uppercase tracking-wider text-indigo-600">
+        <p className="truncate text-xs font-medium uppercase tracking-wider text-teal-700">
           Employee portal
           <span className="ml-2 font-normal normal-case tracking-normal text-slate-500">· {roleBadge}</span>
         </p>
@@ -108,7 +108,7 @@ export function EmployeeTopBar({
         {showOpenAdmin && (
           <a
             href={adminPortalUrl}
-            className="inline-flex max-w-[7rem] shrink-0 truncate rounded-full bg-indigo-600 px-2.5 py-1.5 text-[11px] font-semibold text-white shadow-md shadow-indigo-500/25 transition-transform hover:scale-105 sm:max-w-none sm:px-3 sm:text-xs"
+            className="inline-flex max-w-[7rem] shrink-0 truncate rounded-full bg-teal-600 px-2.5 py-1.5 text-[11px] font-semibold text-white shadow-md shadow-teal-600/30 transition-transform hover:scale-105 sm:max-w-none sm:px-3 sm:text-xs"
           >
             Open admin
           </a>

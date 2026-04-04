@@ -60,7 +60,7 @@ export function ReturnAssetButton({
             <h3 className="text-lg font-semibold text-zinc-900">Return asset</h3>
             <p className="mt-1 text-sm text-zinc-600">{assetLabel}</p>
             <p className="mt-3 text-sm text-zinc-600">
-              Describe the condition and why you are returning it (required). QC and PM are notified; PM will finalise status after handover.
+              Describe the condition and why you are returning it (required). Applies to assets assigned to you (including under maintenance or damaged). QC and PM are notified; PM will finalise status after handover.
             </p>
             <textarea
               value={comment}

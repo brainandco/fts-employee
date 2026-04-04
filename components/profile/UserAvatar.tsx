@@ -39,7 +39,7 @@ export function UserAvatar({ name, email, avatarUrl, size = "md", className = ""
   }
   return (
     <div
-      className={`flex shrink-0 items-center justify-center rounded-full bg-indigo-600 font-semibold text-white shadow-lg shadow-indigo-900/30 ${sc} ${className}`}
+      className={`flex shrink-0 items-center justify-center rounded-full bg-teal-600 font-semibold text-white shadow-lg shadow-teal-900/30 ${sc} ${className}`}
       aria-hidden
     >
       {initials}

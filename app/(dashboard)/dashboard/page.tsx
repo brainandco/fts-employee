@@ -177,6 +177,10 @@ export default async function DashboardPage() {
             </div>
             <div>
               <h3 className="text-sm font-medium text-zinc-700">Assets with you</h3>
+              <p className="mt-1 text-xs text-zinc-500">
+                To hand a tool back to the pool, use <strong className="font-medium text-zinc-700">Return</strong> on that row—
+                including when status is With_QC or assigned.
+              </p>
               {assets.length === 0 ? (
                 <p className="mt-1 text-sm text-zinc-500">No assets currently assigned to you.</p>
               ) : (

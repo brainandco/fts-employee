@@ -1,10 +1,12 @@
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { getDataClient } from "@/lib/supabase/server";
+import { canEmployeeInitiateAssetReturn } from "@/lib/asset-return-eligibility";
 import { NextResponse } from "next/server";
 import { notifyPmAndQcInRegion } from "@/lib/notifyRegionStaff";
 
 /**
- * Employee returns an asset assigned to them (Assigned).
+ * Employee returns an asset assigned to them (Assigned, Under_Maintenance, or Damaged — still in their custody).
+ * QC, PM, QA, and other roles use the same flow when the asset is assigned to their employee row.
  * Creates asset_return_requests (pending) and sets asset to Pending_Return, unassigned.
  */
 export async function POST(req: Request) {
@@ -33,8 +35,14 @@ export async function POST(req: Request) {
   if (asset.assigned_to_employee_id !== employee.id) {
     return NextResponse.json({ message: "This asset is not assigned to you" }, { status: 403 });
   }
-  if (asset.status !== "Assigned") {
-    return NextResponse.json({ message: "Only assigned assets can be returned this way" }, { status: 400 });
+  if (!canEmployeeInitiateAssetReturn(asset.status)) {
+    return NextResponse.json(
+      {
+        message:
+          "Only assets still in your custody can be returned (Assigned, With_QC, under maintenance, or damaged). If this asset is already in the return queue, wait for PM/QC.",
+      },
+      { status: 400 }
+    );
   }
 
   const { data: existingPending } = await supabase
