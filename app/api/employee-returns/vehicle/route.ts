@@ -3,6 +3,7 @@ import { getDataClient } from "@/lib/supabase/server";
 import { NextResponse } from "next/server";
 import { notifyPmAndQcInRegion } from "@/lib/notifyRegionStaff";
 import { deleteReceiptForResource } from "@/lib/resource-receipts";
+import { hasMinimumPhotos, parseImageUrlArray } from "@/lib/resource-photos";
 
 /**
  * Driver/Rigger or Self DT returns their assigned vehicle to the pool (QC/PM notified).
@@ -16,8 +17,12 @@ export async function POST(req: Request) {
 
   const body = await req.json().catch(() => ({}));
   const employee_comment = typeof body.employee_comment === "string" ? body.employee_comment.trim() : "";
+  const returnUrls = parseImageUrlArray(body.return_image_urls);
   if (!employee_comment) {
     return NextResponse.json({ message: "employee_comment is required (handover / condition)." }, { status: 400 });
+  }
+  if (!hasMinimumPhotos(returnUrls)) {
+    return NextResponse.json({ message: "At least 2 condition photos are required when returning a vehicle." }, { status: 400 });
   }
 
   const supabase = await getDataClient();
@@ -58,6 +63,14 @@ export async function POST(req: Request) {
     .eq("id", vehicleId);
 
   if (vErr) return NextResponse.json({ message: vErr.message }, { status: 400 });
+
+  const { error: retErr } = await supabase.from("vehicle_return_events").insert({
+    vehicle_id: vehicleId,
+    from_employee_id: employee.id,
+    employee_comment,
+    return_image_urls: returnUrls,
+  });
+  if (retErr) return NextResponse.json({ message: retErr.message }, { status: 400 });
 
   await deleteReceiptForResource(supabase, "vehicle", vehicleId);
 

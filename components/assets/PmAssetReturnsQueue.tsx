@@ -8,6 +8,7 @@ type Row = {
   asset_id: string;
   from_employee_id: string;
   employee_comment: string;
+  return_image_urls?: string[] | null;
   created_at: string;
   asset: { id: string; name: string; model: string | null; serial: string | null; imei_1: string | null; imei_2: string | null; category: string } | null;
   from_employee_name: string | null;
@@ -113,6 +114,22 @@ export function PmAssetReturnsQueue({ canProcess = true }: { canProcess?: boolea
               <p className="mt-2 text-sm text-zinc-700">
                 <span className="font-medium text-zinc-900">Employee comment:</span> {row.employee_comment}
               </p>
+              {Array.isArray(row.return_image_urls) && row.return_image_urls.length > 0 ? (
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {row.return_image_urls.map((url) => (
+                    <a
+                      key={url}
+                      href={url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="block h-20 w-20 overflow-hidden rounded border border-zinc-200 bg-zinc-100"
+                    >
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={url} alt="" className="h-full w-full object-cover" />
+                    </a>
+                  ))}
+                </div>
+              ) : null}
               <p className="mt-1 text-xs text-zinc-400">{new Date(row.created_at).toLocaleString()}</p>
             </div>
           </div>

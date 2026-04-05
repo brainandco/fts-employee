@@ -4,6 +4,7 @@ import { canEmployeeInitiateAssetReturn } from "@/lib/asset-return-eligibility";
 import { NextResponse } from "next/server";
 import { notifyPmAndQcInRegion } from "@/lib/notifyRegionStaff";
 import { deleteReceiptForResource } from "@/lib/resource-receipts";
+import { hasMinimumPhotos, parseImageUrlArray } from "@/lib/resource-photos";
 
 /**
  * Employee returns an asset assigned to them (Assigned, Under_Maintenance, or Damaged — still in their custody).
@@ -18,8 +19,12 @@ export async function POST(req: Request) {
   const body = await req.json().catch(() => ({}));
   const assetId = typeof body.asset_id === "string" ? body.asset_id.trim() : "";
   const employee_comment = typeof body.employee_comment === "string" ? body.employee_comment.trim() : "";
+  const returnUrls = parseImageUrlArray(body.return_image_urls);
   if (!assetId) return NextResponse.json({ message: "asset_id required" }, { status: 400 });
   if (!employee_comment) return NextResponse.json({ message: "employee_comment is required" }, { status: 400 });
+  if (!hasMinimumPhotos(returnUrls)) {
+    return NextResponse.json({ message: "At least 2 condition photos are required when returning an asset." }, { status: 400 });
+  }
 
   const supabase = await getDataClient();
   const email = (session.user.email ?? "").trim().toLowerCase();
@@ -63,6 +68,7 @@ export async function POST(req: Request) {
     from_employee_id: employee.id,
     region_id,
     employee_comment,
+    return_image_urls: returnUrls,
     status: "pending",
   });
 

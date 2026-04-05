@@ -21,7 +21,7 @@ export async function GET() {
   const { data: pending, error } = await supabase
     .from("asset_return_requests")
     .select(
-      "id, asset_id, from_employee_id, employee_comment, status, created_at, region_id"
+      "id, asset_id, from_employee_id, employee_comment, return_image_urls, status, created_at, region_id"
     )
     .eq("status", "pending")
     .eq("region_id", employee.region_id)
