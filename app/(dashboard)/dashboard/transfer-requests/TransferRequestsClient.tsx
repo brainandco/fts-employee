@@ -2,6 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { ReturnHandInPhotos } from "@/components/assets/ReturnHandInPhotos";
+import { MIN_RESOURCE_PHOTOS } from "@/lib/resource-photos";
 
 type RequestType = "vehicle_swap" | "vehicle_replacement" | "drive_swap" | "asset_transfer";
 type TransferRequest = {
@@ -18,6 +20,7 @@ type TransferRequest = {
   reviewer_comment: string | null;
   reviewed_at: string | null;
   created_at: string;
+  handover_image_urls?: string[] | null;
 };
 
 type EmployeeOption = { id: string; full_name: string };
@@ -77,6 +80,7 @@ export function TransferRequestsClient({
   const [notes, setNotes] = useState("");
   const [formError, setFormError] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [handoverUrls, setHandoverUrls] = useState<string[]>([]);
 
   const [reviewingId, setReviewingId] = useState<string | null>(null);
   const [replacementVehicleId, setReplacementVehicleId] = useState("");
@@ -113,7 +117,12 @@ export function TransferRequestsClient({
   useEffect(() => {
     setTargetEmployeeId("");
     setAssetId("");
+    setHandoverUrls([]);
   }, [requestType]);
+
+  useEffect(() => {
+    setHandoverUrls([]);
+  }, [assetId]);
 
   const incoming = useMemo(
     () => requests.filter((r) => r.requester_employee_id !== meId),
@@ -140,6 +149,9 @@ export function TransferRequestsClient({
     if (requestType === "asset_transfer") {
       if (!targetEmployeeId) return setFormError("Choose the DT receiving the asset.");
       if (!assetId) return setFormError("Select an asset.");
+      if (handoverUrls.length < MIN_RESOURCE_PHOTOS) {
+        return setFormError(`Add at least ${MIN_RESOURCE_PHOTOS} photos of the asset’s condition before submitting.`);
+      }
     }
     setSubmitting(true);
 
@@ -152,6 +164,7 @@ export function TransferRequestsClient({
         asset_id: assetId || undefined,
         request_reason: reason.trim(),
         notes: notes.trim() || undefined,
+        ...(requestType === "asset_transfer" ? { handover_image_urls: handoverUrls } : {}),
       }),
     });
     const data = await res.json().catch(() => ({}));
@@ -161,6 +174,7 @@ export function TransferRequestsClient({
     setNotes("");
     setTargetEmployeeId("");
     setAssetId("");
+    setHandoverUrls([]);
     router.refresh();
   }
 
@@ -263,6 +277,17 @@ export function TransferRequestsClient({
                     ))}
                   </select>
                 </label>
+                {assetId ? (
+                  <div className="md:col-span-2">
+                    <ReturnHandInPhotos
+                      purpose="asset-transfer-handover"
+                      assetId={assetId}
+                      urls={handoverUrls}
+                      onUrlsChange={setHandoverUrls}
+                      title="Handover condition photos"
+                    />
+                  </div>
+                ) : null}
                 {assetTransferDts.length === 0 ? (
                   <p className="text-sm text-amber-700 md:col-span-2">No other DTs available for transfer in your region.</p>
                 ) : null}
@@ -331,6 +356,27 @@ export function TransferRequestsClient({
                       {r.target_employee_id ? <p>Target employee: {employeeMap.get(r.target_employee_id) ?? "—"}</p> : null}
                       {r.target_team_id ? <p>Target team: {teamLookup.get(r.target_team_id) ?? "—"}</p> : null}
                       {r.asset_id ? <p>Asset: {assetMap.get(r.asset_id) ?? r.asset_id}</p> : null}
+                      {r.request_type === "asset_transfer" &&
+                      Array.isArray(r.handover_image_urls) &&
+                      r.handover_image_urls.length > 0 ? (
+                        <div className="mt-2">
+                          <p className="text-xs font-medium text-zinc-600">Handover photos</p>
+                          <div className="mt-1 flex flex-wrap gap-2">
+                            {r.handover_image_urls.map((url) => (
+                              <a
+                                key={url}
+                                href={url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="block h-16 w-16 overflow-hidden rounded border border-zinc-200 bg-white"
+                              >
+                                {/* eslint-disable-next-line @next/next/no-img-element */}
+                                <img src={url} alt="" className="h-full w-full object-cover" />
+                              </a>
+                            ))}
+                          </div>
+                        </div>
+                      ) : null}
                       <p>Reason: {r.request_reason}</p>
                       {r.notes ? <p>Notes: {r.notes}</p> : null}
                       {r.reviewer_comment ? <p>Reviewer comment: {r.reviewer_comment}</p> : null}
@@ -447,6 +493,27 @@ export function TransferRequestsClient({
                 {r.target_employee_id ? <p>Target: {employeeMap.get(r.target_employee_id) ?? "—"}</p> : null}
                 {r.target_team_id ? <p>Team: {teamLookup.get(r.target_team_id) ?? "—"}</p> : null}
                 {r.asset_id ? <p>Asset: {assetMap.get(r.asset_id) ?? "—"}</p> : null}
+                {r.request_type === "asset_transfer" &&
+                Array.isArray(r.handover_image_urls) &&
+                r.handover_image_urls.length > 0 ? (
+                  <div className="mt-2">
+                    <p className="text-xs font-medium text-zinc-600">Your handover photos</p>
+                    <div className="mt-1 flex flex-wrap gap-2">
+                      {r.handover_image_urls.map((url) => (
+                        <a
+                          key={url}
+                          href={url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="block h-14 w-14 overflow-hidden rounded border border-zinc-200 bg-white"
+                        >
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img src={url} alt="" className="h-full w-full object-cover" />
+                        </a>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
                 {r.notes ? <p>Notes: {r.notes}</p> : null}
                 {r.reviewer_comment ? <p>Reviewer comment: {r.reviewer_comment}</p> : null}
               </div>

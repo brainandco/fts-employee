@@ -3,16 +3,28 @@
 import { useState } from "react";
 import { MAX_RESOURCE_PHOTOS, MIN_RESOURCE_PHOTOS } from "@/lib/resource-photos";
 
+export type ResourcePhotoPurpose =
+  | "asset-return"
+  | "vehicle-return"
+  | "receipt-confirmation"
+  | "asset-transfer-handover";
+
 export function ReturnHandInPhotos({
   purpose,
   assetId,
+  receiptConfirmationId,
   urls,
   onUrlsChange,
+  title = "Condition photos",
 }: {
-  purpose: "asset-return" | "vehicle-return";
+  purpose: ResourcePhotoPurpose;
   assetId?: string;
+  /** Pending receipt row id (resource_type must be asset). */
+  receiptConfirmationId?: string;
   urls: string[];
   onUrlsChange: (urls: string[]) => void;
+  /** Override default heading. */
+  title?: string;
 }) {
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState("");
@@ -30,6 +42,10 @@ export function ReturnHandInPhotos({
       fd.set("file", file);
       fd.set("purpose", purpose);
       if (purpose === "asset-return" && assetId) fd.set("asset_id", assetId);
+      if (purpose === "receipt-confirmation" && receiptConfirmationId) {
+        fd.set("receipt_confirmation_id", receiptConfirmationId);
+      }
+      if (purpose === "asset-transfer-handover" && assetId) fd.set("asset_id", assetId);
       const res = await fetch("/api/uploads/resource-photo", { method: "POST", body: fd });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -49,7 +65,7 @@ export function ReturnHandInPhotos({
   return (
     <div className="mt-3 rounded-lg border border-zinc-200 bg-zinc-50 p-3">
       <p className="text-sm font-medium text-zinc-900">
-        Condition photos <span className="text-red-600">*</span>
+        {title} <span className="text-red-600">*</span>
       </p>
       <p className="mt-1 text-xs text-zinc-600">
         Upload at least {MIN_RESOURCE_PHOTOS} photos showing the current condition (all sides / issues as needed).

@@ -1,6 +1,7 @@
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { getDataClient } from "@/lib/supabase/server";
 import { loadPmScopeIds } from "@/lib/pm-team-assignees";
+import { hasMinimumPhotos, parseImageUrlArray } from "@/lib/resource-photos";
 import { NextResponse } from "next/server";
 type TransferType = "vehicle_swap" | "vehicle_replacement" | "drive_swap" | "asset_transfer";
 
@@ -156,10 +157,18 @@ export async function POST(req: Request) {
     payload.target_driver_id = targetTeam.driver_rigger_employee_id;
   }
 
+  const handoverUrls = parseImageUrlArray(body.handover_image_urls);
+
   if (request_type === "asset_transfer") {
     if (!isDt) return NextResponse.json({ message: "Only DT can request asset transfer" }, { status: 400 });
     if (!assetIdInput || !targetEmployeeIdInput) {
       return NextResponse.json({ message: "Asset and target DT are required" }, { status: 400 });
+    }
+    if (!hasMinimumPhotos(handoverUrls)) {
+      return NextResponse.json(
+        { message: "At least 2 photos of the asset’s current condition are required for a transfer request." },
+        { status: 400 }
+      );
     }
     const { data: targetEmp } = await supabase.from("employees").select("id, region_id").eq("id", targetEmployeeIdInput).single();
     if (!targetEmp || targetEmp.region_id !== employee.region_id || targetEmp.id === employee.id) {
@@ -182,6 +191,10 @@ export async function POST(req: Request) {
     asset_id = asset.id;
   }
 
+  if (request_type !== "asset_transfer" && handoverUrls.length > 0) {
+    return NextResponse.json({ message: "Handover photos apply only to asset transfer requests." }, { status: 400 });
+  }
+
   const { data: inserted, error } = await supabase
     .from("transfer_requests")
     .insert({
@@ -194,6 +207,7 @@ export async function POST(req: Request) {
       request_reason,
       notes: notes || null,
       payload_json: payload,
+      handover_image_urls: request_type === "asset_transfer" ? handoverUrls : [],
       status: "Pending",
     })
     .select("id")

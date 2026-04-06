@@ -104,7 +104,7 @@ export default async function DashboardPage() {
                 {pendingReceiptCount === 1
                   ? "One assigned item needs you to confirm you received it."
                   : `${pendingReceiptCount} assigned items need you to confirm receipt.`}{" "}
-                Assignees must acknowledge receipt of assets, SIMs, and vehicles.
+                For assets, upload at least two condition photos when you confirm. SIMs and vehicles use confirm + optional note only.
               </p>
             </div>
             <Link

@@ -8,7 +8,7 @@ const MAX_BYTES = 5 * 1024 * 1024;
 const ALLOWED_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 
 /**
- * Employee uploads return photos (asset or vehicle hand-in). Auth required; assignment verified.
+ * Employee uploads condition photos: returns, receipt confirmation (assets), or asset-transfer handover.
  */
 export async function POST(req: Request) {
   const userClient = await createServerSupabaseClient();
@@ -52,6 +52,37 @@ export async function POST(req: Request) {
       return NextResponse.json({ message: "This asset is not assigned to you" }, { status: 403 });
     }
     subPath = `returns/assets/${assetId}/${employee.id}`;
+  } else if (purpose === "receipt-confirmation") {
+    const rcId =
+      typeof formData.get("receipt_confirmation_id") === "string"
+        ? String(formData.get("receipt_confirmation_id")).trim()
+        : "";
+    if (!rcId) {
+      return NextResponse.json({ message: "receipt_confirmation_id is required" }, { status: 400 });
+    }
+    const { data: rc } = await supabase
+      .from("resource_receipt_confirmations")
+      .select("id, employee_id, status, resource_type, resource_id")
+      .eq("id", rcId)
+      .maybeSingle();
+    if (!rc || rc.employee_id !== employee.id || rc.status !== "pending") {
+      return NextResponse.json({ message: "Invalid or expired receipt confirmation" }, { status: 403 });
+    }
+    if (rc.resource_type !== "asset") {
+      return NextResponse.json({ message: "Receipt photos apply only to asset confirmations" }, { status: 400 });
+    }
+    subPath = `receipts/assets/${rc.resource_id}/${employee.id}`;
+  } else if (purpose === "asset-transfer-handover") {
+    if (!assetId) return NextResponse.json({ message: "asset_id is required for asset-transfer-handover" }, { status: 400 });
+    const { data: asset } = await supabase
+      .from("assets")
+      .select("id, assigned_to_employee_id, status")
+      .eq("id", assetId)
+      .maybeSingle();
+    if (!asset || asset.assigned_to_employee_id !== employee.id || asset.status !== "Assigned") {
+      return NextResponse.json({ message: "Asset must be assigned to you to add handover photos" }, { status: 403 });
+    }
+    subPath = `transfers/handover/${assetId}/${employee.id}`;
   } else if (purpose === "vehicle-return") {
     const { data: roleRows } = await supabase.from("employee_roles").select("role").eq("employee_id", employee.id);
     const roles = new Set((roleRows ?? []).map((r) => r.role));
@@ -68,7 +99,13 @@ export async function POST(req: Request) {
     }
     subPath = `returns/vehicles/${assignment.vehicle_id}/${employee.id}`;
   } else {
-    return NextResponse.json({ message: "purpose must be asset-return or vehicle-return" }, { status: 400 });
+    return NextResponse.json(
+      {
+        message:
+          "purpose must be asset-return, vehicle-return, receipt-confirmation, or asset-transfer-handover",
+      },
+      { status: 400 }
+    );
   }
 
   const admin = createServerSupabaseAdmin();

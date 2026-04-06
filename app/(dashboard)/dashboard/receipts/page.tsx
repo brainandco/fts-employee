@@ -73,7 +73,9 @@ export default async function ReceiptsPage() {
       <div className="rounded-2xl border border-emerald-200 bg-gradient-to-r from-emerald-50 to-teal-50 p-5 sm:p-6">
         <h1 className="text-2xl font-semibold text-zinc-900">Confirm receipt</h1>
         <p className="mt-2 text-sm text-zinc-700">
-          When tools, SIMs, or vehicles are assigned to you, confirm here that you physically received them. This helps the team keep records aligned with handover.
+          When tools, SIMs, or vehicles are assigned to you, confirm here that you physically received them. For{" "}
+          <strong>assets</strong>, you must upload at least two photos of each item&apos;s current condition before confirming.
+          SIMs and vehicles only need your confirmation (optional note).
         </p>
         <Link href="/dashboard" className="mt-4 inline-block text-sm font-medium text-emerald-900 hover:underline">
           ← Back to dashboard
