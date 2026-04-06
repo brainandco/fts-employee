@@ -68,7 +68,8 @@ export function ReturnHandInPhotos({
         {title} <span className="text-red-600">*</span>
       </p>
       <p className="mt-1 text-xs text-zinc-600">
-        Upload at least {MIN_RESOURCE_PHOTOS} photos showing the current condition (all sides / issues as needed).
+        Take at least {MIN_RESOURCE_PHOTOS} photos with your device camera showing the current condition (all sides /
+        issues as needed). On a phone, the camera should open; on some computers you may still pick a file.
       </p>
       <div className="mt-2 flex flex-wrap gap-2">
         {urls.map((url, i) => (
@@ -87,19 +88,23 @@ export function ReturnHandInPhotos({
         ))}
       </div>
       {urls.length < MAX_RESOURCE_PHOTOS ? (
-        <input
-          type="file"
-          accept="image/jpeg,image/png,image/webp"
-          disabled={uploading}
-          className="mt-2 text-xs file:mr-2 file:rounded file:border-0 file:bg-zinc-200 file:px-2 file:py-1"
-          onChange={(e) => {
-            const f = e.target.files?.[0] ?? null;
-            e.target.value = "";
-            void handleFile(f);
-          }}
-        />
+        <label className="mt-2 inline-block">
+          <span className="sr-only">Take or add condition photo</span>
+          <input
+            type="file"
+            accept="image/jpeg,image/png,image/webp"
+            capture="environment"
+            disabled={uploading}
+            className="text-xs file:mr-2 file:rounded file:border-0 file:bg-zinc-200 file:px-2 file:py-1"
+            onChange={(e) => {
+              const f = e.target.files?.[0] ?? null;
+              e.target.value = "";
+              void handleFile(f);
+            }}
+          />
+        </label>
       ) : null}
-      {uploading ? <p className="mt-1 text-xs text-zinc-500">Uploading…</p> : null}
+      {uploading ? <p className="mt-1 text-xs text-zinc-500">Sending photo…</p> : null}
       <p className={`mt-1 text-xs ${urls.length >= MIN_RESOURCE_PHOTOS ? "text-emerald-700" : "text-amber-800"}`}>
         {urls.length} / {MIN_RESOURCE_PHOTOS} minimum
       </p>
