@@ -1,5 +1,6 @@
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { getDataClient } from "@/lib/supabase/server";
+import { getPmReviewerScopeRegionIds } from "@/lib/pm-team-assignees";
 import { NextResponse } from "next/server";
 
 type PendingTransfer = {
@@ -42,13 +43,27 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   if (!(reviewerRole ?? []).length) {
     return NextResponse.json({ message: "Only QC/PM can review transfer requests" }, { status: 403 });
   }
+  const reviewerRoles = (reviewerRole ?? []).map((r) => r.role);
+  const isPmReviewer = reviewerRoles.includes("Project Manager");
+  const isQcReviewer = reviewerRoles.includes("QC");
 
   const { data: requestRow } = await supabase.from("transfer_requests").select("*").eq("id", id).single();
   if (!requestRow) return NextResponse.json({ message: "Request not found" }, { status: 404 });
   const requestData = requestRow as PendingTransfer;
   if (requestData.status !== "Pending") return NextResponse.json({ message: "Request already processed" }, { status: 400 });
-  if (requestData.requester_region_id !== reviewer.region_id) {
-    return NextResponse.json({ message: "You can only review your region requests" }, { status: 403 });
+
+  const pmReviewerRegionIds = isPmReviewer
+    ? await getPmReviewerScopeRegionIds(supabase, reviewer.id, session.user.id)
+    : [];
+
+  if (isPmReviewer) {
+    if (!pmReviewerRegionIds.includes(requestData.requester_region_id)) {
+      return NextResponse.json({ message: "You can only review requests in your PM scope" }, { status: 403 });
+    }
+  } else if (isQcReviewer) {
+    if (requestData.requester_region_id !== reviewer.region_id) {
+      return NextResponse.json({ message: "You can only review your region requests" }, { status: 403 });
+    }
   }
 
   const now = new Date().toISOString();
@@ -104,8 +119,14 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       if (replacementVehicle.assignment_type !== "Temporary") {
         return NextResponse.json({ message: "Only Temporary vehicles can be used for replacement" }, { status: 400 });
       }
-      if (replacementVehicle.assigned_region_id && replacementVehicle.assigned_region_id !== reviewer.region_id) {
-        return NextResponse.json({ message: "Replacement vehicle must be in your region" }, { status: 400 });
+      if (replacementVehicle.assigned_region_id) {
+        if (isPmReviewer) {
+          if (!pmReviewerRegionIds.includes(replacementVehicle.assigned_region_id)) {
+            return NextResponse.json({ message: "Replacement vehicle must be in your PM scope" }, { status: 400 });
+          }
+        } else if (replacementVehicle.assigned_region_id !== reviewer.region_id) {
+          return NextResponse.json({ message: "Replacement vehicle must be in your region" }, { status: 400 });
+        }
       }
 
       await supabase
@@ -126,7 +147,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
         .from("vehicles")
         .update({
           status: "Assigned",
-          assigned_region_id: reviewer.region_id,
+          assigned_region_id: requestData.requester_region_id,
           assigned_by: session.user.id,
           assigned_at: now,
         })
@@ -148,11 +169,18 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
         .eq("driver_rigger_employee_id", targetEmployeeId)
         .maybeSingle();
 
+      const driveSwapRegionsOk = isPmReviewer
+        ? !!(
+            ownTeam?.region_id &&
+            targetTeam?.region_id &&
+            pmReviewerRegionIds.includes(ownTeam.region_id) &&
+            pmReviewerRegionIds.includes(targetTeam.region_id)
+          )
+        : ownTeam?.region_id === reviewer.region_id && targetTeam?.region_id === reviewer.region_id;
       if (
         !ownTeam?.id ||
         !targetTeam?.id ||
-        ownTeam.region_id !== reviewer.region_id ||
-        targetTeam.region_id !== reviewer.region_id ||
+        !driveSwapRegionsOk ||
         !targetTeam.driver_rigger_employee_id
       ) {
         return NextResponse.json({ message: "Drive swap participants are not valid anymore" }, { status: 400 });

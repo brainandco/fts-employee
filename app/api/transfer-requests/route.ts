@@ -1,5 +1,6 @@
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { getDataClient } from "@/lib/supabase/server";
+import { loadPmScopeIds } from "@/lib/pm-team-assignees";
 import { NextResponse } from "next/server";
 type TransferType = "vehicle_swap" | "vehicle_replacement" | "drive_swap" | "asset_transfer";
 
@@ -14,7 +15,11 @@ export async function GET() {
 
   const supabase = await getDataClient();
   const email = (session.user.email ?? "").trim().toLowerCase();
-  const { data: employee } = await supabase.from("employees").select("id, region_id").eq("email", email).maybeSingle();
+  const { data: employee } = await supabase
+    .from("employees")
+    .select("id, region_id, project_id")
+    .eq("email", email)
+    .maybeSingle();
   if (!employee) return NextResponse.json({ message: "Employee not found" }, { status: 403 });
 
   const { data: roles } = await supabase.from("employee_roles").select("role").eq("employee_id", employee.id);
@@ -23,12 +28,35 @@ export async function GET() {
   const canRequest =
     roleSet.has("DT") || roleSet.has("Driver/Rigger") || isSelfDt;
   const canReview = roleSet.has("QC") || roleSet.has("Project Manager");
+  const isPm = roleSet.has("Project Manager");
 
-  const query = supabase
-    .from("transfer_requests")
-    .select("*")
-    .or(canReview ? `requester_employee_id.eq.${employee.id},requester_region_id.eq.${employee.region_id}` : `requester_employee_id.eq.${employee.id}`)
-    .order("created_at", { ascending: false });
+  let query = supabase.from("transfer_requests").select("*").order("created_at", { ascending: false });
+  if (canReview) {
+    if (isPm) {
+      const { allowedRegionIds } = await loadPmScopeIds(
+        supabase,
+        { id: employee.id, region_id: employee.region_id, project_id: employee.project_id },
+        session.user.id
+      );
+      if (allowedRegionIds.length === 0) {
+        query = query.eq("requester_employee_id", employee.id);
+      } else if (allowedRegionIds.length === 1) {
+        query = query.or(
+          `requester_employee_id.eq.${employee.id},requester_region_id.eq.${allowedRegionIds[0]}`
+        );
+      } else {
+        query = query.or(
+          `requester_employee_id.eq.${employee.id},requester_region_id.in.(${allowedRegionIds.join(",")})`
+        );
+      }
+    } else {
+      query = query.or(
+        `requester_employee_id.eq.${employee.id},requester_region_id.eq.${employee.region_id}`
+      );
+    }
+  } else {
+    query = query.eq("requester_employee_id", employee.id);
+  }
 
   const { data: all } = await query;
   return NextResponse.json({ requests: all ?? [], canRequest, canReview });

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createServerSupabaseClient, getDataClient } from "@/lib/supabase/server";
+import { loadPmScopeIds } from "@/lib/pm-team-assignees";
 import { REGION_FALLBACK_TEAM_ID } from "@/lib/transfer-requests/constants";
 import { TransferRequestsClient } from "./TransferRequestsClient";
 
@@ -44,7 +45,7 @@ export default async function TransferRequestsPage() {
   const email = (session.user.email ?? "").trim().toLowerCase();
   const { data: employee } = await supabase
     .from("employees")
-    .select("id, region_id, full_name, status")
+    .select("id, region_id, project_id, full_name, status")
     .eq("email", email)
     .maybeSingle();
   if (!employee || employee.status !== "ACTIVE" || !employee.region_id) redirect("/dashboard");
@@ -58,22 +59,59 @@ export default async function TransferRequestsPage() {
   const canReview = roleSet.has("QC") || roleSet.has("Project Manager");
   if (!canRequest && !canReview) redirect("/dashboard");
 
-  const { data: requests } = await supabase
-    .from("transfer_requests")
-    .select("*")
-    .or(canReview ? `requester_employee_id.eq.${employee.id},requester_region_id.eq.${employee.region_id}` : `requester_employee_id.eq.${employee.id}`)
-    .order("created_at", { ascending: false });
+  const isPm = roleSet.has("Project Manager");
+  const { allowedRegionIds: pmAllowedRegionIds } = isPm
+    ? await loadPmScopeIds(
+        supabase,
+        { id: employee.id, region_id: employee.region_id, project_id: employee.project_id },
+        session.user.id
+      )
+    : { allowedRegionIds: [] as string[] };
+
+  const regionIdsForLists = canRequest
+    ? employee.region_id
+      ? [employee.region_id]
+      : []
+    : isPm && canReview && pmAllowedRegionIds.length > 0
+      ? pmAllowedRegionIds
+      : employee.region_id
+        ? [employee.region_id]
+        : [];
+
+  let requestsQuery = supabase.from("transfer_requests").select("*").order("created_at", { ascending: false });
+  if (canReview) {
+    if (isPm) {
+      if (pmAllowedRegionIds.length === 0) {
+        requestsQuery = requestsQuery.eq("requester_employee_id", employee.id);
+      } else if (pmAllowedRegionIds.length === 1) {
+        requestsQuery = requestsQuery.or(
+          `requester_employee_id.eq.${employee.id},requester_region_id.eq.${pmAllowedRegionIds[0]}`
+        );
+      } else {
+        requestsQuery = requestsQuery.or(
+          `requester_employee_id.eq.${employee.id},requester_region_id.in.(${pmAllowedRegionIds.join(",")})`
+        );
+      }
+    } else {
+      requestsQuery = requestsQuery.or(
+        `requester_employee_id.eq.${employee.id},requester_region_id.eq.${employee.region_id}`
+      );
+    }
+  } else {
+    requestsQuery = requestsQuery.eq("requester_employee_id", employee.id);
+  }
+  const { data: requests } = await requestsQuery;
 
   const { data: regionEmployees } = await supabase
     .from("employees")
     .select("id, full_name, region_id, status")
-    .eq("region_id", employee.region_id)
+    .in("region_id", regionIdsForLists)
     .eq("status", "ACTIVE");
 
   const { data: regionTeamsFull } = await supabase
     .from("teams")
     .select("id, name, region_id, dt_employee_id, driver_rigger_employee_id")
-    .eq("region_id", employee.region_id);
+    .in("region_id", regionIdsForLists);
 
   const regionIds = (regionEmployees ?? []).map((e) => e.id);
   const teamMemberIds = new Set<string>();
@@ -196,13 +234,23 @@ export default async function TransferRequestsPage() {
     .eq("assigned_to_employee_id", employee.id)
     .eq("status", "Assigned");
 
-  const { data: replacementVehicles } = await supabase
+  let replacementVehiclesQuery = supabase
     .from("vehicles")
     .select("id, plate_number, make, model, status, assigned_region_id, assignment_type")
     .eq("assignment_type", "Temporary")
-    .eq("status", "Available")
-    .or(`assigned_region_id.eq.${employee.region_id},assigned_region_id.is.null`)
-    .order("plate_number");
+    .eq("status", "Available");
+  if (canReview && isPm && pmAllowedRegionIds.length > 0) {
+    const orParts = [
+      ...pmAllowedRegionIds.map((id) => `assigned_region_id.eq.${id}`),
+      "assigned_region_id.is.null",
+    ];
+    replacementVehiclesQuery = replacementVehiclesQuery.or(orParts.join(","));
+  } else {
+    replacementVehiclesQuery = replacementVehiclesQuery.or(
+      `assigned_region_id.eq.${employee.region_id},assigned_region_id.is.null`
+    );
+  }
+  const { data: replacementVehicles } = await replacementVehiclesQuery.order("plate_number");
 
   return (
     <div className="space-y-6">

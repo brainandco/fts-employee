@@ -47,6 +47,26 @@ export async function loadPmScopeIds(
   return { allowedRegionIds, allowedProjectIds };
 }
 
+/** Primary + extra PM regions for reviewer APIs (transfer requests, asset returns). */
+export async function getPmReviewerScopeRegionIds(
+  supabase: SupabaseClient,
+  pmEmployeeId: string,
+  authUserId: string | null
+): Promise<string[]> {
+  const { data: emp } = await supabase
+    .from("employees")
+    .select("id, region_id, project_id")
+    .eq("id", pmEmployeeId)
+    .maybeSingle();
+  if (!emp?.id) return [];
+  const { allowedRegionIds } = await loadPmScopeIds(
+    supabase,
+    { id: emp.id, region_id: emp.region_id, project_id: emp.project_id },
+    authUserId
+  );
+  return allowedRegionIds;
+}
+
 /**
  * Teams the PM may assign into. Union of:
  * - Teams on any project in pm_employee_projects ∪ projects.pm_user_id (portal user).

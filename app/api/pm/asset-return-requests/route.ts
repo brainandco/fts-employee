@@ -1,8 +1,9 @@
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { getDataClient } from "@/lib/supabase/server";
+import { loadPmScopeIds } from "@/lib/pm-team-assignees";
 import { NextResponse } from "next/server";
 
-/** PM: pending returns in their region (region_id on the request matches employee.region_id). */
+/** PM: pending returns in primary + extra PM regions; QC: primary region only. */
 export async function GET() {
   const userClient = await createServerSupabaseClient();
   const { data: { session } } = await userClient.auth.getSession();
@@ -10,22 +11,42 @@ export async function GET() {
 
   const supabase = await getDataClient();
   const email = (session.user.email ?? "").trim().toLowerCase();
-  const { data: employee } = await supabase.from("employees").select("id, region_id").eq("email", email).maybeSingle();
+  const { data: employee } = await supabase
+    .from("employees")
+    .select("id, region_id, project_id")
+    .eq("email", email)
+    .maybeSingle();
   if (!employee?.region_id) return NextResponse.json({ pending: [] });
 
   const { data: roleRows } = await supabase.from("employee_roles").select("role").eq("employee_id", employee.id);
   const roles = new Set((roleRows ?? []).map((r) => r.role));
-  const allowed = roles.has("Project Manager") || roles.has("QC");
-  if (!allowed) return NextResponse.json({ message: "Forbidden" }, { status: 403 });
+  const isPm = roles.has("Project Manager");
+  const isQc = roles.has("QC");
+  if (!isPm && !isQc) return NextResponse.json({ message: "Forbidden" }, { status: 403 });
 
-  const { data: pending, error } = await supabase
+  const regionIds = isPm
+    ? (
+        await loadPmScopeIds(
+          supabase,
+          { id: employee.id, region_id: employee.region_id, project_id: employee.project_id },
+          session.user.id
+        )
+      ).allowedRegionIds
+    : [employee.region_id];
+  if (!regionIds.length) return NextResponse.json({ pending: [] });
+
+  let pendingQuery = supabase
     .from("asset_return_requests")
     .select(
       "id, asset_id, from_employee_id, employee_comment, return_image_urls, status, created_at, region_id"
     )
-    .eq("status", "pending")
-    .eq("region_id", employee.region_id)
-    .order("created_at", { ascending: true });
+    .eq("status", "pending");
+  pendingQuery =
+    regionIds.length === 1
+      ? pendingQuery.eq("region_id", regionIds[0])
+      : pendingQuery.in("region_id", regionIds);
+
+  const { data: pending, error } = await pendingQuery.order("created_at", { ascending: true });
 
   if (error) return NextResponse.json({ message: error.message }, { status: 400 });
 
