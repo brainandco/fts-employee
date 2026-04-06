@@ -97,6 +97,7 @@ export default async function DashboardLayout({
         items: [
           { href: "/dashboard", label: "Admin view" },
           { href: "/dashboard/admin-overview", label: "All employees" },
+          { href: "/dashboard/assets/assign", label: "Assign assets" },
           { href: "/settings/profile", label: "Profile settings" },
         ],
       },

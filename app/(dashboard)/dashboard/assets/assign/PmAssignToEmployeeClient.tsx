@@ -5,8 +5,8 @@ import { useRouter } from "next/navigation";
 
 type Asset = {
   id: string;
-  name: string;
-  category: string;
+  name: string | null;
+  category: string | null;
   model: string | null;
   serial: string | null;
   imei_1: string | null;
@@ -15,21 +15,34 @@ type Asset = {
 };
 type Assignee = { id: string; label: string };
 type AssignMode = "team" | "region";
+type ViewerRole = "pm" | "admin";
+
+function matchesSearch(a: Asset, q: string): boolean {
+  const tokens = q.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  if (tokens.length === 0) return true;
+  const hay = [a.serial, a.model, a.imei_1, a.imei_2, a.name, a.category]
+    .map((x) => (x ?? "").toLowerCase())
+    .join(" ");
+  return tokens.every((t) => hay.includes(t));
+}
 
 export function PmAssignToEmployeeClient({
   assets,
   teamAssignees,
   regionAssignees,
+  viewerRole = "pm",
 }: {
   assets: Asset[];
   teamAssignees: Assignee[];
   regionAssignees: Assignee[];
+  viewerRole?: ViewerRole;
 }) {
   const router = useRouter();
   const [mode, setMode] = useState<AssignMode>("team");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [employeeId, setEmployeeId] = useState("");
   const [activeType, setActiveType] = useState<string>("All");
+  const [search, setSearch] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
@@ -46,9 +59,10 @@ export function PmAssignToEmployeeClient({
   }, [assets]);
 
   const filteredAssets = useMemo(() => {
-    if (activeType === "All") return assets;
-    return assets.filter((a) => ((a.category || "Other").trim() || "Other") === activeType);
-  }, [assets, activeType]);
+    const byType =
+      activeType === "All" ? assets : assets.filter((a) => ((a.category || "Other").trim() || "Other") === activeType);
+    return byType.filter((a) => matchesSearch(a, search));
+  }, [assets, activeType, search]);
 
   const toggle = (id: string) => {
     setSelected((prev) => {
@@ -152,7 +166,11 @@ export function PmAssignToEmployeeClient({
       <div className="flex flex-wrap items-end gap-4 rounded-2xl border border-zinc-200 bg-white p-4">
         <div className="min-w-[280px] max-w-xl">
           <label className="mb-1 block text-sm font-medium text-zinc-700">
-            {mode === "team" ? "Team member (DT or Driver/Rigger)" : "Employee in your regions"}
+            {mode === "team"
+              ? "Team member (DT or Driver/Rigger)"
+              : viewerRole === "admin"
+                ? "Employee (any region)"
+                : "Employee in your regions"}
           </label>
           <select value={employeeId} onChange={(e) => setEmployeeId(e.target.value)} className="w-full rounded border border-zinc-300 px-3 py-2 text-sm">
             <option value="">{mode === "team" ? "— Select team member" : "— Select employee"}</option>
@@ -172,7 +190,8 @@ export function PmAssignToEmployeeClient({
           {submitting ? "Assigning…" : `Assign ${selected.size} selected`}
         </button>
         <p className="text-xs text-zinc-500">
-          Showing: <span className="font-medium text-zinc-700">{activeType}</span> ({filteredAssets.length})
+          Showing: <span className="font-medium text-zinc-700">{activeType}</span> ({filteredAssets.length}
+          {search.trim() ? " matched" : ""})
         </p>
         {assignees.length === 0 && (
           <p className="text-sm text-amber-600">
@@ -183,6 +202,31 @@ export function PmAssignToEmployeeClient({
         )}
       </div>
       <div className="rounded-2xl border border-zinc-200 bg-white p-3">
+        <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+          <div className="min-w-0 flex-1">
+            <label htmlFor="assign-asset-search" className="mb-1 block text-xs font-semibold uppercase tracking-wide text-zinc-500">
+              Search
+            </label>
+            <input
+              id="assign-asset-search"
+              type="search"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Serial, model, IMEI, name, or type…"
+              className="w-full max-w-md rounded border border-zinc-300 px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400"
+              autoComplete="off"
+            />
+          </div>
+          {search.trim() ? (
+            <button
+              type="button"
+              onClick={() => setSearch("")}
+              className="shrink-0 rounded border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm text-zinc-700 hover:bg-zinc-100"
+            >
+              Clear search
+            </button>
+          ) : null}
+        </div>
         <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">Asset types</p>
         <div className="flex flex-wrap gap-2">
           {typeTabs.map((tab) => {
@@ -212,7 +256,9 @@ export function PmAssignToEmployeeClient({
       {error && <p className="text-sm text-red-600">{error}</p>}
       {filteredAssets.length === 0 ? (
         <div className="rounded-xl border border-zinc-200 bg-white p-6 text-sm text-zinc-500">
-          No assets found in this type.
+          {search.trim()
+            ? "No assets match your search. Try another term or clear search."
+            : "No assets found in this type."}
         </div>
       ) : null}
       <div className="overflow-x-auto rounded-2xl border border-zinc-200 bg-white">

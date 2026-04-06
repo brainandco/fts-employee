@@ -4,16 +4,21 @@ import { NextResponse } from "next/server";
 import {
   targetEmployeeIsOnPmTeam,
   targetEmployeeIsInPmRegionScope,
+  targetEmployeeIsOnAnyTeam,
+  targetEmployeeIsGlobalRegionAssignee,
 } from "@/lib/pm-team-assignees";
+import { resolvePortalAdminAssetAssigner } from "@/lib/portal-asset-assign-auth";
 import { upsertPendingReceipts } from "@/lib/resource-receipts";
 
 /**
- * POST /api/assets/assign-pm — PM assigns available assets to a DT or Driver/Rigger on a team in scope (team region/project; projects where user is PM).
- * Body: { asset_ids: string[], employee_id: string }
+ * POST /api/assets/assign-pm — PM or portal admin assigns available assets to an employee.
+ * Body: { asset_ids: string[], employee_id: string, assignment_mode?: "team" | "region" }
  */
 export async function POST(req: Request) {
   const userClient = await createServerSupabaseClient();
-  const { data: { session } } = await userClient.auth.getSession();
+  const {
+    data: { session },
+  } = await userClient.auth.getSession();
   if (!session) return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
 
   const body = await req.json().catch(() => ({}));
@@ -26,20 +31,31 @@ export async function POST(req: Request) {
 
   const supabase = await getDataClient();
   const email = (session.user.email ?? "").trim();
+
   const { data: pmEmployee } = await supabase
     .from("employees")
     .select("id, region_id, project_id")
     .eq("email", email)
     .maybeSingle();
-  if (!pmEmployee) return NextResponse.json({ message: "Employee not found" }, { status: 403 });
 
-  const { data: pmRole } = await supabase
-    .from("employee_roles")
-    .select("role")
-    .eq("employee_id", pmEmployee.id)
-    .eq("role", "Project Manager")
-    .maybeSingle();
-  if (!pmRole) return NextResponse.json({ message: "Only Project Managers can assign assets to employees" }, { status: 403 });
+  const { data: pmRole } = pmEmployee
+    ? await supabase
+        .from("employee_roles")
+        .select("role")
+        .eq("employee_id", pmEmployee.id)
+        .eq("role", "Project Manager")
+        .maybeSingle()
+    : { data: null };
+
+  const isPm = !!(pmEmployee && pmRole);
+  const isPortalAdmin = await resolvePortalAdminAssetAssigner(supabase, session.user.id, email);
+
+  if (!isPm && !isPortalAdmin) {
+    return NextResponse.json(
+      { message: "Only Project Managers or admin portal users with asset assignment access can assign assets here." },
+      { status: 403 }
+    );
+  }
 
   const { data: toEmployee } = await supabase
     .from("employees")
@@ -58,18 +74,33 @@ export async function POST(req: Request) {
     return NextResponse.json({ message: "Assets cannot be assigned to QC." }, { status: 400 });
   }
 
-  const inScope =
-    assignmentMode === "team"
-      ? await targetEmployeeIsOnPmTeam(supabase, pmEmployee, employeeId, session.user.id)
-      : await targetEmployeeIsInPmRegionScope(supabase, pmEmployee, employeeId, session.user.id, {
-          excludeQc: true,
-          requireVehicleRoles: false,
-        });
+  let inScope = false;
+  if (isPortalAdmin) {
+    inScope =
+      assignmentMode === "team"
+        ? await targetEmployeeIsOnAnyTeam(supabase, employeeId)
+        : await targetEmployeeIsGlobalRegionAssignee(supabase, employeeId, {
+            excludeQc: true,
+            requireVehicleRoles: false,
+          });
+  } else if (pmEmployee) {
+    inScope =
+      assignmentMode === "team"
+        ? await targetEmployeeIsOnPmTeam(supabase, pmEmployee, employeeId, session.user.id)
+        : await targetEmployeeIsInPmRegionScope(supabase, pmEmployee, employeeId, session.user.id, {
+            excludeQc: true,
+            requireVehicleRoles: false,
+          });
+  }
+
   if (!inScope) {
     return NextResponse.json(
       {
-        message:
-          assignmentMode === "team"
+        message: isPortalAdmin
+          ? assignmentMode === "team"
+            ? "Assign only to a DT or Driver/Rigger on a team."
+            : "Assign only to an active employee (QC cannot receive assets)."
+          : assignmentMode === "team"
             ? "Assign only to a DT or Driver/Rigger on a team in your scope (team region/project in Admin, or project PM on the project)."
             : "Assign only to an active employee in one of your regions (primary or extra regions from Admin). QC cannot receive assets.",
       },
@@ -84,6 +115,7 @@ export async function POST(req: Request) {
     .eq("status", "Available");
   const availableIds = (availableAssets ?? []).map((a) => a.id);
   const now = new Date().toISOString();
+  const notesTag = isPortalAdmin ? "Assigned by admin from employee portal" : "Assigned by PM from employee portal";
 
   for (const id of availableIds) {
     await supabase
@@ -99,7 +131,7 @@ export async function POST(req: Request) {
       asset_id: id,
       to_employee_id: employeeId,
       assigned_by_user_id: session.user.id,
-      notes: "Assigned by PM from employee portal",
+      notes: notesTag,
     });
   }
 
@@ -112,11 +144,7 @@ export async function POST(req: Request) {
   }
 
   if (availableIds.length > 0 && toEmployee?.email) {
-    const { data: recipient } = await supabase
-      .from("users_profile")
-      .select("id")
-      .eq("email", toEmployee.email)
-      .maybeSingle();
+    const { data: recipient } = await supabase.from("users_profile").select("id").eq("email", toEmployee.email).maybeSingle();
     if (recipient?.id) {
       await supabase.from("notifications").insert({
         recipient_user_id: recipient.id,
