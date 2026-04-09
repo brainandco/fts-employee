@@ -230,12 +230,13 @@ export async function POST(req: Request) {
   const { data: reviewerUsers } = reviewerEmails.length
     ? await supabase.from("users_profile").select("id").in("email", reviewerEmails)
     : { data: [] };
+  const detailLink = `/employee-requests/transfers/${inserted.id}`;
   const notificationRows = (reviewerUsers ?? []).map((u) => ({
     recipient_user_id: u.id,
     title: "New transfer request",
     body: `${employee.full_name} submitted ${request_type.replaceAll("_", " ")} request.`,
     category: "transfer_request",
-    link: "/dashboard/transfer-requests",
+    link: detailLink,
     meta: { transfer_request_id: inserted.id, request_type },
   }));
   if (notificationRows.length) await supabase.from("notifications").insert(notificationRows);

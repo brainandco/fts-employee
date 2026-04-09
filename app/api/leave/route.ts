@@ -1,23 +1,53 @@
-import { createServerSupabaseClient } from "@/lib/supabase/server";
-import { getDataClient } from "@/lib/supabase/server";
+import { createServerSupabaseClient, getDataClient } from "@/lib/supabase/server";
 import { NextResponse } from "next/server";
+import { inclusiveCalendarDays } from "@/lib/employee-requests/leave-metrics";
+
+async function regionAndProjectNames(
+  supabase: Awaited<ReturnType<typeof getDataClient>>,
+  regionId: string | null,
+  projectId: string | null,
+  projectNameOther: string | null | undefined
+) {
+  let region_name = "";
+  let project_name = "";
+  if (regionId) {
+    const { data: r } = await supabase.from("regions").select("name").eq("id", regionId).maybeSingle();
+    region_name = (r?.name ?? "").trim();
+  }
+  if (projectId) {
+    const { data: p } = await supabase.from("projects").select("name").eq("id", projectId).maybeSingle();
+    project_name = (p?.name ?? "").trim();
+  }
+  if (!project_name && projectNameOther) project_name = projectNameOther.trim();
+  return { region_name, project_name };
+}
 
 /**
  * POST /api/leave — submit a leave request (creates an approval with type leave_request).
- * Employee must be logged in; region_id is taken from the employee's record.
+ * Requires guarantor in same region and leave type. Snapshots applicant & guarantor for PDF performa.
  */
 export async function POST(req: Request) {
   const userClient = await createServerSupabaseClient();
-  const { data: { session } } = await userClient.auth.getSession();
+  const {
+    data: { session },
+  } = await userClient.auth.getSession();
   if (!session) return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
 
   const body = await req.json().catch(() => ({}));
   const from_date = typeof body.from_date === "string" ? body.from_date.trim() : "";
   const to_date = typeof body.to_date === "string" ? body.to_date.trim() : "";
   const reason = typeof body.reason === "string" ? body.reason.trim() : "";
+  const guarantor_employee_id = typeof body.guarantor_employee_id === "string" ? body.guarantor_employee_id.trim() : "";
+  const leave_type = typeof body.leave_type === "string" ? body.leave_type.trim() : "";
 
   if (!from_date || !to_date) {
     return NextResponse.json({ message: "From date and to date are required" }, { status: 400 });
+  }
+  if (!guarantor_employee_id) {
+    return NextResponse.json({ message: "Guarantor is required (must be another employee in your region)." }, { status: 400 });
+  }
+  if (!leave_type) {
+    return NextResponse.json({ message: "Leave type is required" }, { status: 400 });
   }
 
   const from = new Date(from_date);
@@ -30,15 +60,67 @@ export async function POST(req: Request) {
   }
 
   const supabase = await getDataClient();
+  const email = (session.user.email ?? "").trim().toLowerCase();
+
   const { data: employee } = await supabase
     .from("employees")
-    .select("id, region_id, full_name")
-    .eq("email", session.user.email ?? "")
+    .select("id, region_id, full_name, iqama_number, job_title, department, phone, email, project_id, project_name_other, status")
+    .eq("email", email)
     .maybeSingle();
 
   if (!employee) {
     return NextResponse.json({ message: "Employee record not found" }, { status: 403 });
   }
+  if (employee.status !== "ACTIVE") {
+    return NextResponse.json({ message: "Only active employees can request leave" }, { status: 403 });
+  }
+  if (!employee.region_id) {
+    return NextResponse.json({ message: "Your employee record has no region; contact admin." }, { status: 400 });
+  }
+
+  const { data: guarantor } = await supabase
+    .from("employees")
+    .select("id, region_id, full_name, iqama_number, job_title, department, phone, email, project_id, project_name_other, status")
+    .eq("id", guarantor_employee_id)
+    .maybeSingle();
+
+  if (!guarantor || guarantor.status !== "ACTIVE") {
+    return NextResponse.json({ message: "Guarantor not found or inactive" }, { status: 400 });
+  }
+  if (guarantor.id === employee.id) {
+    return NextResponse.json({ message: "You cannot select yourself as guarantor" }, { status: 400 });
+  }
+  if (guarantor.region_id !== employee.region_id) {
+    return NextResponse.json({ message: "Guarantor must be in the same region as you" }, { status: 400 });
+  }
+
+  const reqRp = await regionAndProjectNames(supabase, employee.region_id, employee.project_id, employee.project_name_other);
+  const guRp = await regionAndProjectNames(supabase, guarantor.region_id, guarantor.project_id, guarantor.project_name_other);
+
+  const total_days = inclusiveCalendarDays(from_date, to_date);
+
+  const payload_json = {
+    from_date,
+    to_date,
+    reason: reason || null,
+    leave_type,
+    requester_employee_id: employee.id,
+    requester_name: employee.full_name ?? null,
+    requester_display_name: (employee.full_name ?? "").trim(),
+    requester_iqama: (employee.iqama_number ?? "").trim(),
+    requester_job_title: (employee.job_title ?? employee.department ?? "").trim(),
+    requester_region_name: reqRp.region_name,
+    requester_project_name: reqRp.project_name,
+    guarantor_employee_id: guarantor.id,
+    guarantor_display_name: (guarantor.full_name ?? "").trim(),
+    guarantor_iqama: (guarantor.iqama_number ?? "").trim(),
+    guarantor_phone: (guarantor.phone ?? "").trim(),
+    guarantor_email: (guarantor.email ?? "").trim(),
+    guarantor_job_title: (guarantor.job_title ?? guarantor.department ?? "").trim(),
+    guarantor_region_name: guRp.region_name,
+    guarantor_project_name: guRp.project_name,
+    leave_total_days_snapshot: total_days,
+  };
 
   const { data: approval, error } = await supabase
     .from("approvals")
@@ -47,13 +129,7 @@ export async function POST(req: Request) {
       status: "Submitted",
       requester_id: session.user.id,
       region_id: employee.region_id ?? null,
-      payload_json: {
-        from_date,
-        to_date,
-        reason: reason || null,
-        requester_employee_id: employee.id,
-        requester_name: employee.full_name ?? null,
-      },
+      payload_json,
     })
     .select("id")
     .single();

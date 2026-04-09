@@ -1,0 +1,100 @@
+"use client";
+
+import { useState } from "react";
+import { useRouter } from "next/navigation";
+
+export function LeavePerformaUpload({ approvalId, pdfUrl }: { approvalId: string; pdfUrl: string }) {
+  const router = useRouter();
+  const [message, setMessage] = useState("");
+  const [file, setFile] = useState<File | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [feedback, setFeedback] = useState<{ type: "ok" | "err"; text: string } | null>(null);
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    setFeedback(null);
+    if (!message.trim()) {
+      setFeedback({ type: "err", text: "Please add a short note (e.g. that the performa is filled and signed)." });
+      return;
+    }
+    if (!file) {
+      setFeedback({ type: "err", text: "Please choose your signed PDF file." });
+      return;
+    }
+    setLoading(true);
+    try {
+      const fd = new FormData();
+      fd.set("message", message.trim());
+      fd.set("file", file);
+      const res = await fetch(`/api/leave/${approvalId}/submit-performa`, {
+        method: "POST",
+        body: fd,
+        credentials: "include",
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setFeedback({ type: "err", text: data.message ?? "Upload failed" });
+        return;
+      }
+      setFeedback({ type: "ok", text: "Signed performa submitted. Final approval will be done by a super user." });
+      setMessage("");
+      setFile(null);
+      router.refresh();
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div className="mt-3 rounded-lg border border-violet-200 bg-violet-50/60 p-4">
+      <p className="text-sm font-medium text-zinc-900">Signed performa</p>
+      <p className="mt-1 text-xs text-zinc-600">
+        Download the PDF, print it, complete the home country section and signatures, then upload the signed PDF here.
+      </p>
+      <a
+        href={pdfUrl}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="mt-2 inline-block text-sm font-medium text-violet-700 underline hover:text-violet-900"
+      >
+        Download filled performa (PDF)
+      </a>
+      <form onSubmit={submit} className="mt-4 space-y-3">
+        <div>
+          <label htmlFor={`performa-msg-${approvalId}`} className="mb-1 block text-xs font-medium text-zinc-700">
+            Message
+          </label>
+          <input
+            id={`performa-msg-${approvalId}`}
+            value={message}
+            onChange={(e) => setMessage(e.target.value)}
+            placeholder="e.g. Signed performa attached"
+            className="w-full rounded border border-zinc-300 px-3 py-2 text-sm"
+          />
+        </div>
+        <div>
+          <label htmlFor={`performa-file-${approvalId}`} className="mb-1 block text-xs font-medium text-zinc-700">
+            Signed PDF
+          </label>
+          <input
+            id={`performa-file-${approvalId}`}
+            type="file"
+            accept="application/pdf,.pdf"
+            onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+            className="w-full text-sm text-zinc-700"
+          />
+        </div>
+        {feedback ? (
+          <p className={`text-sm ${feedback.type === "ok" ? "text-emerald-700" : "text-red-600"}`}>{feedback.text}</p>
+        ) : null}
+        <button
+          type="submit"
+          disabled={loading}
+          className="rounded bg-violet-700 px-4 py-2 text-sm font-medium text-white hover:bg-violet-800 disabled:opacity-50"
+        >
+          {loading ? "Uploading…" : "Submit signed performa"}
+        </button>
+      </form>
+    </div>
+  );
+}

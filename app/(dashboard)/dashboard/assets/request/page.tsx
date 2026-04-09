@@ -37,7 +37,7 @@ export default async function RequestAssetPage() {
       <div className="rounded-2xl border border-indigo-200 bg-gradient-to-r from-indigo-50 via-violet-50 to-slate-50 p-5 sm:p-6">
         <h1 className="text-2xl font-semibold tracking-tight text-zinc-900">Request asset from admin</h1>
         <p className="mt-1 text-sm text-zinc-700">
-          PM cannot add assets directly. Submit your requirement to Admin, then assign from available stock once approved.
+          PM cannot add assets directly. Your request is reviewed by Admin first, then finalized by a Super User—same stages as leave requests. After final approval, assign from available stock when the items exist.
         </p>
       </div>
       <RequestAssetForm />

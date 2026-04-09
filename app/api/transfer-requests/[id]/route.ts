@@ -242,7 +242,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
         title: `Transfer request ${finalStatus.toLowerCase()}`,
         body: `Your ${requestData.request_type.replaceAll("_", " ")} request has been ${finalStatus.toLowerCase()}.`,
         category: "transfer_request",
-        link: "/dashboard/transfer-requests",
+        link: `/employee-requests/transfers/${requestData.id}`,
         meta: { transfer_request_id: requestData.id, status: finalStatus },
       });
     }

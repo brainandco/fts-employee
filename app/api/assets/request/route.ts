@@ -77,5 +77,8 @@ export async function POST(req: Request) {
     await supabase.from("notifications").insert(notifications);
   }
 
-  return NextResponse.json({ id: data.id, message: "Asset request submitted to Admin." });
+  return NextResponse.json({
+    id: data.id,
+    message: "Request sent for admin review. After admin approval, a Super User will give the final decision.",
+  });
 }

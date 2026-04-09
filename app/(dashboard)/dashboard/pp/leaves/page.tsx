@@ -70,20 +70,28 @@ export default async function PpTeamLeavesPage() {
           {list.map((a) => {
             const payload = (a.payload_json as LeavePayload) ?? {};
             const name = payload.requester_name?.trim() || "Team member";
-            const isApproved = a.status === "Admin_Approved" || a.status === "Completed";
+            const isApproved = a.status === "Completed" || a.status === "Admin_Approved";
             const isRejected = a.status === "Admin_Rejected" || a.status === "PM_Rejected";
+            const inPerforma =
+              a.status === "Awaiting_Signed_Performa" || a.status === "Performa_Submitted";
             return (
               <li
                 key={a.id}
                 className={`rounded-xl border p-4 ${
-                  isApproved ? "border-emerald-200 bg-emerald-50/50" : isRejected ? "border-red-200 bg-red-50/50" : "border-zinc-200 bg-white"
+                  isApproved
+                    ? "border-emerald-200 bg-emerald-50/50"
+                    : isRejected
+                      ? "border-red-200 bg-red-50/50"
+                      : inPerforma
+                        ? "border-violet-200 bg-violet-50/30"
+                        : "border-zinc-200 bg-white"
                 }`}
               >
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <span className="font-medium text-zinc-900">{name}</span>
                   <span
                     className={`rounded px-2 py-0.5 text-xs font-medium ${
-                      isApproved ? "bg-emerald-100 text-emerald-800" : isRejected ? "bg-red-100 text-red-800" : "bg-amber-100 text-amber-800"
+                      isApproved ? "bg-emerald-100 text-emerald-800" : isRejected ? "bg-red-100 text-red-800" : inPerforma ? "bg-violet-100 text-violet-900" : "bg-amber-100 text-amber-800"
                     }`}
                   >
                     {a.status.replace(/_/g, " ")}

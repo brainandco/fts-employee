@@ -347,10 +347,12 @@ export default async function DashboardPage() {
                       {payload.reason && <span className="ml-2 text-sm text-zinc-500">— {payload.reason}</span>}
                     </div>
                     <span className={`rounded px-2 py-0.5 text-xs font-medium ${
-                      a.status === "Admin_Approved" || a.status === "Completed" ? "bg-emerald-100 text-emerald-800" :
+                      a.status === "Completed" || a.status === "Admin_Approved" ? "bg-emerald-100 text-emerald-800" :
                       a.status === "Admin_Rejected" || a.status === "PM_Rejected" ? "bg-red-100 text-red-800" :
+                      a.status === "Awaiting_Signed_Performa" ? "bg-sky-100 text-sky-900" :
+                      a.status === "Performa_Submitted" ? "bg-violet-100 text-violet-900" :
                       "bg-amber-100 text-amber-800"
-                    }`}>{a.status}</span>
+                    }`}>{a.status.replace(/_/g, " ")}</span>
                   </li>
                 );
               })}
