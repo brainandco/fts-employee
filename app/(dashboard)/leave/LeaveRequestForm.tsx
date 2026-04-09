@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { GuarantorCombobox, type GuarantorRow } from "./GuarantorCombobox";
 
 const LEAVE_TYPES = [
   "Annual",
@@ -14,8 +15,6 @@ const LEAVE_TYPES = [
   "Other",
 ] as const;
 
-type GuarantorRow = { id: string; full_name: string; subtitle: string };
-
 export function LeaveRequestForm() {
   const router = useRouter();
   const [fromDate, setFromDate] = useState("");
@@ -24,6 +23,7 @@ export function LeaveRequestForm() {
   const [leaveType, setLeaveType] = useState<string>(LEAVE_TYPES[0]);
   const [guarantors, setGuarantors] = useState<GuarantorRow[]>([]);
   const [guarantorId, setGuarantorId] = useState("");
+  const [guarantorPickerKey, setGuarantorPickerKey] = useState(0);
   const [loadingGuarantors, setLoadingGuarantors] = useState(true);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
@@ -86,6 +86,7 @@ export function LeaveRequestForm() {
       setToDate("");
       setReason("");
       setGuarantorId("");
+      setGuarantorPickerKey((k) => k + 1);
       router.refresh();
       window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" });
     } finally {
@@ -114,28 +115,19 @@ export function LeaveRequestForm() {
         </select>
       </div>
       <div>
-        <label htmlFor="guarantor" className="mb-1 block text-sm font-medium text-zinc-700">
-          Guarantor (same region)
-        </label>
-        <select
-          id="guarantor"
-          value={guarantorId}
-          onChange={(e) => setGuarantorId(e.target.value)}
-          required
-          disabled={loadingGuarantors}
-          className="w-full rounded border border-zinc-300 px-3 py-2 text-sm disabled:opacity-60"
-        >
-          <option value="">{loadingGuarantors ? "Loading…" : "Select guarantor"}</option>
-          {guarantors.map((g) => (
-            <option key={g.id} value={g.id}>
-              {g.full_name}
-              {g.subtitle ? ` — ${g.subtitle}` : ""}
-            </option>
-          ))}
-        </select>
+        <span className="mb-1 block text-sm font-medium text-zinc-700">Guarantor (same region)</span>
+        <GuarantorCombobox
+          key={guarantorPickerKey}
+          employees={guarantors}
+          loading={loadingGuarantors}
+          valueId={guarantorId}
+          onChangeId={setGuarantorId}
+        />
         {!loadingGuarantors && guarantors.length === 0 ? (
           <p className="mt-1 text-xs text-amber-700">No other active employees in your region to select as guarantor.</p>
-        ) : null}
+        ) : (
+          <p className="mt-1 text-xs text-zinc-500">Search by name or job line, then click a row to select.</p>
+        )}
       </div>
       <div>
         <label htmlFor="from_date" className="mb-1 block text-sm font-medium text-zinc-700">
