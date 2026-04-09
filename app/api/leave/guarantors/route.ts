@@ -29,11 +29,35 @@ export async function GET() {
     .neq("id", me.id)
     .order("full_name");
 
+  const empIds = (rows ?? []).map((e) => e.id as string);
+  const { data: roleRows } =
+    empIds.length > 0
+      ? await supabase.from("employee_roles").select("employee_id, role").in("employee_id", empIds)
+      : { data: [] as { employee_id: string; role: string }[] };
+  const rolesByEmp = new Map<string, Set<string>>();
+  for (const r of roleRows ?? []) {
+    const id = r.employee_id as string;
+    const role = String(r.role ?? "").trim();
+    if (!role) continue;
+    if (!rolesByEmp.has(id)) rolesByEmp.set(id, new Set());
+    rolesByEmp.get(id)!.add(role);
+  }
+  const rolesByEmpList = new Map<string, string[]>();
+  for (const [id, set] of rolesByEmp) {
+    rolesByEmpList.set(id, [...set].sort((a, b) => a.localeCompare(b)));
+  }
+
   return NextResponse.json({
-    employees: (rows ?? []).map((e) => ({
-      id: e.id,
-      full_name: (e.full_name ?? "").trim() || e.id,
-      subtitle: [e.job_title, e.department].filter(Boolean).join(" · ") || "",
-    })),
+    employees: (rows ?? []).map((e) => {
+      const id = e.id as string;
+      const roles = rolesByEmpList.get(id) ?? [];
+      const roleSubtitle = roles.length ? roles.join(", ") : "";
+      const fallback = [e.job_title, e.department].filter(Boolean).join(" · ") || "";
+      return {
+        id,
+        full_name: (e.full_name ?? "").trim() || id,
+        subtitle: roleSubtitle || fallback,
+      };
+    }),
   });
 }

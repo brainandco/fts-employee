@@ -8,7 +8,9 @@ type LeavePayload = {
   to_date?: string;
   reason?: string;
   leave_type?: string;
+  requester_job_title?: string;
   guarantor_display_name?: string;
+  guarantor_job_title?: string;
   filled_performa_pdf_url?: string;
 };
 
@@ -80,8 +82,14 @@ export default async function LeavePage() {
                   {payload.leave_type ? (
                     <p className="mt-1 text-sm text-zinc-600">Type: {payload.leave_type}</p>
                   ) : null}
+                  {payload.requester_job_title ? (
+                    <p className="mt-0.5 text-sm text-zinc-600">Your role(s): {payload.requester_job_title}</p>
+                  ) : null}
                   {payload.guarantor_display_name ? (
                     <p className="mt-0.5 text-sm text-zinc-600">Guarantor: {payload.guarantor_display_name}</p>
+                  ) : null}
+                  {payload.guarantor_job_title ? (
+                    <p className="mt-0.5 text-sm text-zinc-600">Guarantor role(s): {payload.guarantor_job_title}</p>
                   ) : null}
                   {payload.reason ? <p className="mt-1 text-sm text-zinc-600">Reason: {payload.reason}</p> : null}
                   {a.status === "Awaiting_Signed_Performa" && pdfUrl ? (

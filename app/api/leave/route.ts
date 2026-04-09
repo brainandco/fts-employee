@@ -1,6 +1,7 @@
 import { createServerSupabaseClient, getDataClient } from "@/lib/supabase/server";
 import { NextResponse } from "next/server";
 import { inclusiveCalendarDays } from "@/lib/employee-requests/leave-metrics";
+import { getEmployeeRolesDisplay } from "@/lib/employee-roles-display";
 
 async function regionAndProjectNames(
   supabase: Awaited<ReturnType<typeof getDataClient>>,
@@ -97,6 +98,17 @@ export async function POST(req: Request) {
   const reqRp = await regionAndProjectNames(supabase, employee.region_id, employee.project_id, employee.project_name_other);
   const guRp = await regionAndProjectNames(supabase, guarantor.region_id, guarantor.project_id, guarantor.project_name_other);
 
+  const [requesterRoles, guarantorRoles] = await Promise.all([
+    getEmployeeRolesDisplay(supabase, employee.id),
+    getEmployeeRolesDisplay(supabase, guarantor.id),
+  ]);
+  /** Performa PDF: `fts_requestor_job_title` shows portal roles (same semantic as designation for guarantor). */
+  const requester_job_title_for_performa =
+    requesterRoles.trim() || (employee.job_title ?? employee.department ?? "").trim();
+  /** Performa PDF: `fts_guarantor_designation` is filled from this snapshot (roles preferred). */
+  const guarantor_designation_for_performa =
+    guarantorRoles.trim() || (guarantor.job_title ?? guarantor.department ?? "").trim();
+
   const total_days = inclusiveCalendarDays(from_date, to_date);
 
   const payload_json = {
@@ -108,7 +120,7 @@ export async function POST(req: Request) {
     requester_name: employee.full_name ?? null,
     requester_display_name: (employee.full_name ?? "").trim(),
     requester_iqama: (employee.iqama_number ?? "").trim(),
-    requester_job_title: (employee.job_title ?? employee.department ?? "").trim(),
+    requester_job_title: requester_job_title_for_performa,
     requester_region_name: reqRp.region_name,
     requester_project_name: reqRp.project_name,
     guarantor_employee_id: guarantor.id,
@@ -116,7 +128,7 @@ export async function POST(req: Request) {
     guarantor_iqama: (guarantor.iqama_number ?? "").trim(),
     guarantor_phone: (guarantor.phone ?? "").trim(),
     guarantor_email: (guarantor.email ?? "").trim(),
-    guarantor_job_title: (guarantor.job_title ?? guarantor.department ?? "").trim(),
+    guarantor_job_title: guarantor_designation_for_performa,
     guarantor_region_name: guRp.region_name,
     guarantor_project_name: guRp.project_name,
     leave_total_days_snapshot: total_days,
