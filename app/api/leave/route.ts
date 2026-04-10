@@ -50,6 +50,9 @@ export async function POST(req: Request) {
   if (!leave_type) {
     return NextResponse.json({ message: "Leave type is required" }, { status: 400 });
   }
+  if (!reason.trim()) {
+    return NextResponse.json({ message: "Reason is required" }, { status: 400 });
+  }
 
   const from = new Date(from_date);
   const to = new Date(to_date);
@@ -114,7 +117,7 @@ export async function POST(req: Request) {
   const payload_json = {
     from_date,
     to_date,
-    reason: reason || null,
+    reason,
     leave_type,
     requester_employee_id: employee.id,
     requester_name: employee.full_name ?? null,

@@ -62,6 +62,10 @@ export function LeaveRequestForm() {
       setMessage({ type: "error", text: "Leave type is required." });
       return;
     }
+    if (!reason.trim()) {
+      setMessage({ type: "error", text: "Reason is required." });
+      return;
+    }
     setLoading(true);
     try {
       const res = await fetch("/api/leave", {
@@ -70,7 +74,7 @@ export function LeaveRequestForm() {
         body: JSON.stringify({
           from_date: fromDate,
           to_date: toDate,
-          reason: reason || undefined,
+          reason: reason.trim(),
           guarantor_employee_id: guarantorId,
           leave_type: leaveType.trim(),
         }),
@@ -157,15 +161,16 @@ export function LeaveRequestForm() {
       </div>
       <div>
         <label htmlFor="reason" className="mb-1 block text-sm font-medium text-zinc-700">
-          Reason (optional)
+          Reason <span className="text-red-600">*</span>
         </label>
         <textarea
           id="reason"
           value={reason}
           onChange={(e) => setReason(e.target.value)}
           rows={3}
+          required
           className="w-full rounded border border-zinc-300 px-3 py-2 text-sm"
-          placeholder="e.g. Personal, medical, family"
+          placeholder="Required — e.g. personal, medical, family"
         />
       </div>
       {message ? (
