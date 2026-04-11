@@ -3,6 +3,9 @@
 import { useEffect, useState } from "react";
 import { EmployeeSidebar, type EmployeeNavSection } from "./EmployeeSidebar";
 import { EmployeeTopBar } from "./EmployeeTopBar";
+
+const SIDEBAR_COLLAPSED_KEY = "fts-employee-sidebar-collapsed";
+
 export function EmployeePortalChrome({
   children,
   navSections,
@@ -25,6 +28,25 @@ export function EmployeePortalChrome({
   adminPortalUrl: string;
 }) {
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+
+  useEffect(() => {
+    try {
+      if (typeof window !== "undefined" && localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === "1") {
+        setSidebarCollapsed(true);
+      }
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(SIDEBAR_COLLAPSED_KEY, sidebarCollapsed ? "1" : "0");
+    } catch {
+      /* ignore */
+    }
+  }, [sidebarCollapsed]);
 
   useEffect(() => {
     if (!mobileOpen) return;
@@ -37,14 +59,17 @@ export function EmployeePortalChrome({
 
   // Single wrapper: .fts-app-shell > * { position: relative } must not apply to the sidebar or it overrides position:fixed.
   return (
-    <div className="relative min-h-dvh w-full">
+    <div className={`relative min-h-dvh w-full ${sidebarCollapsed ? "fts-sidebar-collapsed" : ""}`}>
       <EmployeeSidebar
         sections={navSections}
         displayName={displayName}
         email={email}
         avatarUrl={avatarUrl}
+        positionLabel={roleBadge}
         mobileOpen={mobileOpen}
         onCloseMobile={() => setMobileOpen(false)}
+        collapsed={sidebarCollapsed}
+        onToggleCollapsed={() => setSidebarCollapsed((c) => !c)}
       />
 
       <button

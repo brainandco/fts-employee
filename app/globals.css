@@ -78,7 +78,36 @@ body {
 @media (min-width: 1024px) {
   .fts-dashboard-column {
     padding-left: 14rem; /* w-56 */
+    transition: padding-left 0.3s ease;
   }
+
+  .fts-sidebar-collapsed .fts-dashboard-column {
+    padding-left: 4rem; /* lg:w-16 */
+  }
+}
+
+.fts-nav-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: rgb(45 212 191 / 0.55) rgb(15 23 42 / 0.35);
+}
+
+.fts-nav-scrollbar::-webkit-scrollbar {
+  width: 6px;
+}
+
+.fts-nav-scrollbar::-webkit-scrollbar-track {
+  background: rgb(15 23 42 / 0.35);
+  border-radius: 9999px;
+}
+
+.fts-nav-scrollbar::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, rgb(45 212 191 / 0.75), rgb(13 148 136 / 0.85));
+  border-radius: 9999px;
+  border: 1px solid rgb(15 23 42 / 0.5);
+}
+
+.fts-nav-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, rgb(94 234 212 / 0.9), rgb(20 184 166 / 0.95));
 }
 
 .fts-dashboard-topbar {
