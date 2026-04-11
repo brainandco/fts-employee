@@ -98,6 +98,7 @@ export default async function DashboardLayout({
           { href: "/dashboard", label: "Admin view" },
           { href: "/dashboard/admin-overview", label: "All employees" },
           { href: "/dashboard/assets/assign", label: "Assign assets" },
+          { href: "/dashboard/software", label: "Software library" },
           { href: "/settings/profile", label: "Profile settings" },
         ],
       },
@@ -155,6 +156,7 @@ export default async function DashboardLayout({
       workspaceItems.push({ href: "/dashboard/transfer-requests", label: "Transfer requests" });
     }
     workspaceItems.push(
+      { href: "/dashboard/software", label: "Software library" },
       { href: "/tasks", label: "My tasks" },
       { href: "/dashboard/notifications", label: "Notifications" },
       { href: "/leave", label: "Leave" },
