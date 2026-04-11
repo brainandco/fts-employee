@@ -78,7 +78,7 @@ export function LoginForm() {
         <div className="relative z-10 mx-auto w-full max-w-md space-y-6 fts-login-stagger lg:max-w-lg">
           <div className="relative h-12 w-44 sm:h-14 sm:w-52">
             <Image
-              src="/New%20Folder/black.png"
+              src="/images/black.svg"
               alt="Fast Technology Solutions"
               fill
               sizes="(max-width: 1024px) 176px, 208px"

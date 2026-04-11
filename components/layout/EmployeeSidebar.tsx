@@ -5,7 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { UserAvatar } from "@/components/profile/UserAvatar";
 
-const EMPLOYEE_PORTAL_LOGO = "/New%20Folder/black.png";
+const EMPLOYEE_PORTAL_LOGO = "/images/black.svg";
 
 export type EmployeeNavSection = { label: string; items: { href: string; label: string }[] };
 
