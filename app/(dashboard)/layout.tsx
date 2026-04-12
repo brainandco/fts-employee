@@ -34,7 +34,11 @@ export default async function DashboardLayout({
 
   if (!isEmployee && !isAdminView) {
     await supabase.auth.signOut();
-    redirect("/login?error=" + encodeURIComponent("No active employee or admin account. Contact your administrator."));
+    const inactiveMsg =
+      "Your employee account is inactive. Please contact your administrator to activate your account before you can access the Employee Portal.";
+    const fallbackMsg = "No active employee or admin account for this sign-in. Contact your administrator.";
+    const err = employee && employee.status !== "ACTIVE" ? inactiveMsg : fallbackMsg;
+    redirect("/login?error=" + encodeURIComponent(err));
   }
 
   const dataClient = await getDataClient();

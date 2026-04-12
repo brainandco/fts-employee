@@ -85,7 +85,7 @@ export async function POST(request: NextRequest) {
   if (!isEmployee && !isAdmin) {
     await supabase.auth.signOut();
     const msg = employee
-      ? "Employee account is not active. Contact your administrator."
+      ? "Your employee account is inactive. Please contact your administrator to activate your account before you can access the Employee Portal."
       : "No employee or admin account for this email. Use Admin Portal for users, Employee Portal for employees.";
     if (wantsJson) return NextResponse.json({ error: msg }, { status: 403 });
     loginUrl.searchParams.set("error", encodeURIComponent(msg));
