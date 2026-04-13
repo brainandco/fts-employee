@@ -12,7 +12,7 @@ import { upsertPendingReceipts } from "@/lib/resource-receipts";
 
 /**
  * POST /api/assets/assign-pm — PM or portal admin assigns available assets to an employee.
- * Body: { asset_ids: string[], employee_id: string, assignment_mode?: "team" | "region" }
+ * Body: { asset_ids: string[], employee_id: string, assignment_mode?: "team" | "region" } — use region (default) for employee-by-region assignment; team is legacy.
  */
 export async function POST(req: Request) {
   const userClient = await createServerSupabaseClient();
@@ -22,7 +22,7 @@ export async function POST(req: Request) {
   if (!session) return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
 
   const body = await req.json().catch(() => ({}));
-  const assignmentMode = body.assignment_mode === "region" ? "region" : "team";
+  const assignmentMode: "team" | "region" = body.assignment_mode === "team" ? "team" : "region";
   const assetIds = Array.isArray(body.asset_ids) ? body.asset_ids.filter((id: unknown) => typeof id === "string") : [];
   const employeeId = typeof body.employee_id === "string" ? body.employee_id.trim() : "";
   if (!employeeId || assetIds.length === 0) {

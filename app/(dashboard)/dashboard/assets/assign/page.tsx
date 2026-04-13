@@ -2,13 +2,7 @@ import { getDataClient } from "@/lib/supabase/server";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import Link from "next/link";
-import {
-  loadPmTeamAssigneeOptions,
-  loadPmScopeIds,
-  loadPmRegionEmployeeOptions,
-  loadAllTeamAssigneeOptions,
-  loadAllRegionEmployeeAssigneeOptions,
-} from "@/lib/pm-team-assignees";
+import { loadPmScopeIds, loadPmRegionEmployeeOptions, loadAllRegionEmployeeAssigneeOptions } from "@/lib/pm-team-assignees";
 import { resolvePortalAdminAssetAssigner } from "@/lib/portal-asset-assign-auth";
 import { PmAssignToEmployeeClient } from "./PmAssignToEmployeeClient";
 
@@ -46,8 +40,7 @@ export default async function PmAssignAssetPage() {
     status: string;
   };
   let assets: AssetRow[] = [];
-  let teamAssignees: { id: string; label: string }[] = [];
-  let regionAssignees: { id: string; label: string }[] = [];
+  let assignees: { id: string; label: string }[] = [];
 
   if (isPortalAdmin) {
     const { data: rows } = await supabase
@@ -56,8 +49,7 @@ export default async function PmAssignAssetPage() {
       .eq("status", "Available")
       .order("name");
     assets = rows ?? [];
-    teamAssignees = await loadAllTeamAssigneeOptions(supabase);
-    regionAssignees = await loadAllRegionEmployeeAssigneeOptions(supabase, {
+    assignees = await loadAllRegionEmployeeAssigneeOptions(supabase, {
       excludeQc: true,
       vehicleDriversOnly: false,
     });
@@ -80,8 +72,7 @@ export default async function PmAssignAssetPage() {
       .or(assetsRegionOr)
       .order("name");
     assets = rows ?? [];
-    teamAssignees = await loadPmTeamAssigneeOptions(supabase, pmCtx, session.user.id);
-    regionAssignees = await loadPmRegionEmployeeOptions(supabase, pmCtx, session.user.id, {
+    assignees = await loadPmRegionEmployeeOptions(supabase, pmCtx, session.user.id, {
       excludeQc: true,
       vehicleDriversOnly: false,
     });
@@ -112,21 +103,20 @@ export default async function PmAssignAssetPage() {
           <p className="mt-1 text-sm text-zinc-600">
             {viewerRole === "admin" ? (
               <>
-                Assign available assets to any eligible employee. Use <strong>By team</strong> for DT or Driver/Rigger on
-                teams, or <strong>By region</strong> for any active employee (QC excluded). Regional asset pool rules do
-                not limit whom you can assign to.
+                Assign available assets to an eligible employee by <strong>region</strong> (QC excluded). Search the list
+                to pick who receives the selected assets.
               </>
             ) : (
               <>
-                Choose By team to assign to DT or Driver/Rigger on teams in your PM scope. Choose By region to assign to
-                any active employee in your regions (primary and any extra regions set in Admin). QC cannot receive assets.
+                Assign to an <strong>active employee in your regions</strong> (primary and any extra regions from Admin).
+                QC cannot receive assets. Use the search field to find the right person.
               </>
             )}
           </p>
         </div>
         <div className="mt-4 flex flex-wrap items-center gap-2">
           <span className="rounded-full bg-white px-3 py-1 text-xs font-medium text-zinc-700 ring-1 ring-zinc-200">
-            Team: {teamAssignees.length} · Region: {regionAssignees.length}
+            Eligible employees: {assignees.length}
           </span>
           {viewerRole === "pm" ? (
             <Link
@@ -145,60 +135,7 @@ export default async function PmAssignAssetPage() {
           )}
         </div>
       </div>
-      {/* <section className="rounded-2xl border border-zinc-200 bg-white p-4">
-        <h2 className="text-sm font-semibold text-zinc-800">Who you can assign to</h2>
-        <p className="mt-1 text-xs text-zinc-500">
-          {viewerRole === "admin"
-            ? "Preview lists for each mode (global scope)."
-            : "Preview lists for each mode (use the selector below to switch)."}
-        </p>
-        {teamAssignees.length === 0 && regionAssignees.length === 0 ? (
-          <p className="mt-2 text-sm text-zinc-500">
-            {viewerRole === "admin"
-              ? "No team slots or no eligible employees found. Check Admin for teams and employee roles."
-              : "No team slots in scope and no employees in your regions. Check Admin for teams, regions, and PM project access."}
-          </p>
-        ) : (
-          <div className="mt-3 space-y-2 text-sm">
-            <p className="font-medium text-zinc-700">By team ({teamAssignees.length})</p>
-            <div className="flex flex-wrap gap-2">
-              {teamAssignees.length === 0 ? (
-                <span className="text-zinc-500">None</span>
-              ) : (
-                teamAssignees.map((a) => (
-                  <span
-                    key={a.id}
-                    className="rounded-full border border-indigo-200 bg-indigo-50 px-3 py-1 text-xs font-medium text-indigo-800"
-                  >
-                    {a.label}
-                  </span>
-                ))
-              )}
-            </div>
-            <p className="font-medium text-zinc-700">By region ({regionAssignees.length})</p>
-            <div className="flex flex-wrap gap-2">
-              {regionAssignees.length === 0 ? (
-                <span className="text-zinc-500">None</span>
-              ) : (
-                regionAssignees.map((a) => (
-                  <span
-                    key={a.id}
-                    className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-800"
-                  >
-                    {a.label}
-                  </span>
-                ))
-              )}
-            </div>
-          </div>
-        )}
-      </section> */}
-      <PmAssignToEmployeeClient
-        assets={assets ?? []}
-        teamAssignees={teamAssignees}
-        regionAssignees={regionAssignees}
-        viewerRole={viewerRole}
-      />
+      <PmAssignToEmployeeClient assets={assets ?? []} assignees={assignees} viewerRole={viewerRole} />
     </div>
   );
 }
