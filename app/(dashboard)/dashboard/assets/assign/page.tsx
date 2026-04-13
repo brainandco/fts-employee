@@ -145,7 +145,7 @@ export default async function PmAssignAssetPage() {
           )}
         </div>
       </div>
-      <section className="rounded-2xl border border-zinc-200 bg-white p-4">
+      {/* <section className="rounded-2xl border border-zinc-200 bg-white p-4">
         <h2 className="text-sm font-semibold text-zinc-800">Who you can assign to</h2>
         <p className="mt-1 text-xs text-zinc-500">
           {viewerRole === "admin"
@@ -192,7 +192,7 @@ export default async function PmAssignAssetPage() {
             </div>
           </div>
         )}
-      </section>
+      </section> */}
       <PmAssignToEmployeeClient
         assets={assets ?? []}
         teamAssignees={teamAssignees}
