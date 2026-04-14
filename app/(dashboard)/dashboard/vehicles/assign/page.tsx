@@ -1,11 +1,7 @@
 import { createServerSupabaseClient, getDataClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import Link from "next/link";
-import {
-  loadPmTeamAssigneeOptions,
-  loadPmScopeIds,
-  loadPmRegionEmployeeOptions,
-} from "@/lib/pm-team-assignees";
+import { loadPmScopeIds, loadPmRegionEmployeeOptions } from "@/lib/pm-team-assignees";
 import { PmAssignVehiclesClient } from "./PmAssignVehiclesClient";
 
 export default async function PmAssignVehiclesPage() {
@@ -42,16 +38,10 @@ export default async function PmAssignVehiclesPage() {
       ? `assigned_region_id.is.null,assigned_region_id.in.(${allowedRegionIds.join(",")})`
       : "assigned_region_id.is.null";
 
-  const teamAssignees = await loadPmTeamAssigneeOptions(supabase, pmCtx, session.user.id);
-  const teamIds = teamAssignees.map((a) => a.id);
-  const { data: vehicleRoles } = teamIds.length
-    ? await supabase.from("employee_roles").select("employee_id, role").in("employee_id", teamIds)
-    : { data: [] };
-  const vehicleRoleOk = new Set<string>();
-  for (const r of vehicleRoles ?? []) {
-    if (r.role === "Driver/Rigger" || r.role === "Self DT") vehicleRoleOk.add(r.employee_id);
-  }
-  const candidateTeamAssignees = teamAssignees.filter((a) => vehicleRoleOk.has(a.id));
+  const regionCandidates = await loadPmRegionEmployeeOptions(supabase, pmCtx, session.user.id, {
+    excludeQc: false,
+    vehicleDriversOnly: true,
+  });
 
   const { data: candidates } = await supabase
     .from("vehicles")
@@ -67,19 +57,12 @@ export default async function PmAssignVehiclesPage() {
   const assignedSet = new Set((assignedRows ?? []).map((r) => r.vehicle_id));
   const vehicles = (candidates ?? []).filter((v) => !assignedSet.has(v.id));
 
-  const regionCandidates = await loadPmRegionEmployeeOptions(supabase, pmCtx, session.user.id, {
-    excludeQc: false,
-    vehicleDriversOnly: true,
-  });
-
-  const mergeIds = [...new Set([...candidateTeamAssignees.map((a) => a.id), ...regionCandidates.map((a) => a.id)])];
-  const { data: empAssignments } = mergeIds.length
-    ? await supabase.from("vehicle_assignments").select("employee_id").in("employee_id", mergeIds)
+  const regionIds = regionCandidates.map((a) => a.id);
+  const { data: empAssignments } = regionIds.length
+    ? await supabase.from("vehicle_assignments").select("employee_id").in("employee_id", regionIds)
     : { data: [] };
   const occupiedEmpSet = new Set((empAssignments ?? []).map((r) => r.employee_id));
-
-  const teamAssigneesFiltered = candidateTeamAssignees.filter((a) => !occupiedEmpSet.has(a.id));
-  const regionAssigneesFiltered = regionCandidates.filter((a) => !occupiedEmpSet.has(a.id));
+  const assignees = regionCandidates.filter((a) => !occupiedEmpSet.has(a.id));
 
   return (
     <div className="space-y-5">
@@ -93,10 +76,13 @@ export default async function PmAssignVehiclesPage() {
       <div className="rounded-2xl border border-indigo-200 bg-gradient-to-r from-indigo-50 to-violet-50 p-5 sm:p-6">
         <h1 className="text-2xl font-semibold text-zinc-900">Assign vehicles</h1>
         <p className="mt-1 text-sm text-zinc-600">
-          By team: Driver/Rigger or Self DT on a team in your PM scope. By region: Driver/Rigger or Self DT whose employee record is in one of your regions. One vehicle per person; people who already have a vehicle are hidden.
+          Assign to a <strong>Driver/Rigger or Self DT</strong> whose record is in one of your regions (primary or extra regions from Admin). One vehicle per person; people who already have a vehicle are hidden. Use the search field to find the employee.
+        </p>
+        <p className="mt-3 text-xs font-medium text-zinc-600">
+          <span className="rounded-full bg-white px-3 py-1 ring-1 ring-zinc-200">Eligible drivers: {assignees.length}</span>
         </p>
       </div>
-      <PmAssignVehiclesClient vehicles={vehicles} teamAssignees={teamAssigneesFiltered} regionAssignees={regionAssigneesFiltered} />
+      <PmAssignVehiclesClient vehicles={vehicles} assignees={assignees} />
     </div>
   );
 }

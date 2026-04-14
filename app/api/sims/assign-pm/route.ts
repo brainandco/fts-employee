@@ -7,14 +7,14 @@ import {
 } from "@/lib/pm-team-assignees";
 import { upsertPendingReceipts } from "@/lib/resource-receipts";
 
-/** PM assigns available SIM cards to a DT or Driver/Rigger on a team in scope (team region/project; projects where user is PM). */
+/** PM assigns available SIMs. Body `assignment_mode`: use `region` (default) for employees in PM regions; `team` is legacy. */
 export async function POST(req: Request) {
   const userClient = await createServerSupabaseClient();
   const { data: { session } } = await userClient.auth.getSession();
   if (!session) return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
 
   const body = await req.json().catch(() => ({}));
-  const assignmentMode = body.assignment_mode === "region" ? "region" : "team";
+  const assignmentMode: "team" | "region" = body.assignment_mode === "team" ? "team" : "region";
   const simIds = Array.isArray(body.sim_ids) ? body.sim_ids.filter((id: unknown) => typeof id === "string") : [];
   const employeeId = typeof body.employee_id === "string" ? body.employee_id.trim() : "";
   if (!employeeId || simIds.length === 0) {
