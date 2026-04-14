@@ -17,6 +17,7 @@ export function PmAssignSimsClient({ sims, assignees }: { sims: Sim[]; assignees
   const router = useRouter();
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [employeeId, setEmployeeId] = useState("");
+  const [simQuery, setSimQuery] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
@@ -26,6 +27,18 @@ export function PmAssignSimsClient({ sims, assignees }: { sims: Sim[]; assignees
     [assignees]
   );
   const employeeLabel = employeeId ? assignees.find((e) => e.id === employeeId)?.label ?? "" : "";
+  const filteredSims = useMemo(() => {
+    const q = simQuery.trim().toLowerCase();
+    if (!q) return sims;
+    return sims.filter((s) =>
+      [s.sim_number, s.phone_number, s.operator, s.service_type]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase()
+        .includes(q)
+    );
+  }, [sims, simQuery]);
+  const selectedInView = useMemo(() => filteredSims.filter((s) => selected.has(s.id)).length, [filteredSims, selected]);
 
   const toggle = (id: string) => {
     setSelected((prev) => {
@@ -37,8 +50,18 @@ export function PmAssignSimsClient({ sims, assignees }: { sims: Sim[]; assignees
   };
 
   const toggleAll = () => {
-    if (selected.size === sims.length) setSelected(new Set());
-    else setSelected(new Set(sims.map((s) => s.id)));
+    const visibleIds = filteredSims.map((s) => s.id);
+    if (visibleIds.length === 0) return;
+    const allVisibleSelected = visibleIds.every((id) => selected.has(id));
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (allVisibleSelected) {
+        for (const id of visibleIds) next.delete(id);
+      } else {
+        for (const id of visibleIds) next.add(id);
+      }
+      return next;
+    });
   };
 
   async function assign() {
@@ -101,33 +124,57 @@ export function PmAssignSimsClient({ sims, assignees }: { sims: Sim[]; assignees
       {sims.length === 0 ? (
         <div className="rounded-2xl border border-zinc-200 bg-white p-6 text-sm text-zinc-500">No available SIMs.</div>
       ) : (
-        <div className="overflow-x-auto rounded-2xl border border-zinc-200 bg-white">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-zinc-200 bg-zinc-50">
-                <th className="w-10 px-4 py-3 text-left">
-                  <input type="checkbox" checked={selected.size === sims.length} onChange={toggleAll} className="rounded border-zinc-300" />
-                </th>
-                <th className="px-4 py-3 text-left font-medium text-zinc-700">SIM number</th>
-                <th className="px-4 py-3 text-left font-medium text-zinc-700">Phone</th>
-                <th className="px-4 py-3 text-left font-medium text-zinc-700">Operator</th>
-                <th className="px-4 py-3 text-left font-medium text-zinc-700">Service</th>
-              </tr>
-            </thead>
-            <tbody>
-              {sims.map((s) => (
-                <tr key={s.id} className="border-b border-zinc-100 last:border-0 hover:bg-zinc-50">
-                  <td className="px-4 py-3">
-                    <input type="checkbox" checked={selected.has(s.id)} onChange={() => toggle(s.id)} className="rounded border-zinc-300" />
-                  </td>
-                  <td className="px-4 py-3 font-mono text-xs text-zinc-800">{s.sim_number}</td>
-                  <td className="px-4 py-3 text-zinc-700">{s.phone_number ?? "—"}</td>
-                  <td className="px-4 py-3 text-zinc-700">{s.operator}</td>
-                  <td className="px-4 py-3 text-zinc-700">{s.service_type}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <div className="rounded-2xl border border-zinc-200 bg-white">
+          <div className="border-b border-zinc-200 p-4">
+            <label className="mb-1 block text-sm font-medium text-zinc-700">Search SIMs</label>
+            <input
+              type="search"
+              value={simQuery}
+              onChange={(e) => setSimQuery(e.target.value)}
+              placeholder="Search by SIM number, phone, operator, or service…"
+              className="w-full rounded border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400"
+            />
+            <p className="mt-2 text-xs text-zinc-500">
+              Showing {filteredSims.length} of {sims.length} SIM{sims.length === 1 ? "" : "s"}
+            </p>
+          </div>
+          {filteredSims.length === 0 ? (
+            <div className="p-6 text-sm text-zinc-500">No SIMs match your search.</div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-zinc-200 bg-zinc-50">
+                    <th className="w-10 px-4 py-3 text-left">
+                      <input
+                        type="checkbox"
+                        checked={selectedInView > 0 && selectedInView === filteredSims.length}
+                        onChange={toggleAll}
+                        className="rounded border-zinc-300"
+                      />
+                    </th>
+                    <th className="px-4 py-3 text-left font-medium text-zinc-700">SIM number</th>
+                    <th className="px-4 py-3 text-left font-medium text-zinc-700">Phone</th>
+                    <th className="px-4 py-3 text-left font-medium text-zinc-700">Operator</th>
+                    <th className="px-4 py-3 text-left font-medium text-zinc-700">Service</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredSims.map((s) => (
+                    <tr key={s.id} className="border-b border-zinc-100 last:border-0 hover:bg-zinc-50">
+                      <td className="px-4 py-3">
+                        <input type="checkbox" checked={selected.has(s.id)} onChange={() => toggle(s.id)} className="rounded border-zinc-300" />
+                      </td>
+                      <td className="px-4 py-3 font-mono text-xs text-zinc-800">{s.sim_number}</td>
+                      <td className="px-4 py-3 text-zinc-700">{s.phone_number ?? "—"}</td>
+                      <td className="px-4 py-3 text-zinc-700">{s.operator}</td>
+                      <td className="px-4 py-3 text-zinc-700">{s.service_type}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       )}
     </div>

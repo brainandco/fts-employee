@@ -18,6 +18,7 @@ export function PmAssignVehiclesClient({ vehicles, assignees }: { vehicles: Vehi
   const router = useRouter();
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [employeeId, setEmployeeId] = useState("");
+  const [vehicleQuery, setVehicleQuery] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
@@ -27,6 +28,18 @@ export function PmAssignVehiclesClient({ vehicles, assignees }: { vehicles: Vehi
     [assignees]
   );
   const employeeLabel = employeeId ? assignees.find((e) => e.id === employeeId)?.label ?? "" : "";
+  const filteredVehicles = useMemo(() => {
+    const q = vehicleQuery.trim().toLowerCase();
+    if (!q) return vehicles;
+    return vehicles.filter((v) =>
+      [v.plate_number, v.vehicle_type, v.rent_company, v.make, v.model]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase()
+        .includes(q)
+    );
+  }, [vehicles, vehicleQuery]);
+  const selectedInView = useMemo(() => filteredVehicles.filter((v) => selected.has(v.id)).length, [filteredVehicles, selected]);
 
   const toggle = (id: string) => {
     setSelected((prev) => {
@@ -38,8 +51,18 @@ export function PmAssignVehiclesClient({ vehicles, assignees }: { vehicles: Vehi
   };
 
   const toggleAll = () => {
-    if (selected.size === vehicles.length) setSelected(new Set());
-    else setSelected(new Set(vehicles.map((v) => v.id)));
+    const visibleIds = filteredVehicles.map((v) => v.id);
+    if (visibleIds.length === 0) return;
+    const allVisibleSelected = visibleIds.every((id) => selected.has(id));
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (allVisibleSelected) {
+        for (const id of visibleIds) next.delete(id);
+      } else {
+        for (const id of visibleIds) next.add(id);
+      }
+      return next;
+    });
   };
 
   async function assign() {
@@ -106,12 +129,34 @@ export function PmAssignVehiclesClient({ vehicles, assignees }: { vehicles: Vehi
       {vehicles.length === 0 ? (
         <div className="rounded-2xl border border-zinc-200 bg-white p-6 text-sm text-zinc-500">No available unassigned vehicles in the pool you can assign.</div>
       ) : (
-        <div className="overflow-x-auto rounded-2xl border border-zinc-200 bg-white">
+        <div className="rounded-2xl border border-zinc-200 bg-white">
+          <div className="border-b border-zinc-200 p-4">
+            <label className="mb-1 block text-sm font-medium text-zinc-700">Search vehicles</label>
+            <input
+              type="search"
+              value={vehicleQuery}
+              onChange={(e) => setVehicleQuery(e.target.value)}
+              placeholder="Search by plate, type, company, make, or model…"
+              className="w-full rounded border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400"
+            />
+            <p className="mt-2 text-xs text-zinc-500">
+              Showing {filteredVehicles.length} of {vehicles.length} vehicle{vehicles.length === 1 ? "" : "s"}
+            </p>
+          </div>
+          {filteredVehicles.length === 0 ? (
+            <div className="p-6 text-sm text-zinc-500">No vehicles match your search.</div>
+          ) : (
+            <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-zinc-200 bg-zinc-50">
                 <th className="w-10 px-4 py-3 text-left">
-                  <input type="checkbox" checked={selected.size === vehicles.length} onChange={toggleAll} className="rounded border-zinc-300" />
+                  <input
+                    type="checkbox"
+                    checked={selectedInView > 0 && selectedInView === filteredVehicles.length}
+                    onChange={toggleAll}
+                    className="rounded border-zinc-300"
+                  />
                 </th>
                 <th className="px-4 py-3 text-left font-medium text-zinc-700">Plate number</th>
                 <th className="px-4 py-3 text-left font-medium text-zinc-700">Type</th>
@@ -120,7 +165,7 @@ export function PmAssignVehiclesClient({ vehicles, assignees }: { vehicles: Vehi
               </tr>
             </thead>
             <tbody>
-              {vehicles.map((v) => (
+              {filteredVehicles.map((v) => (
                 <tr key={v.id} className="border-b border-zinc-100 last:border-0 hover:bg-zinc-50">
                   <td className="px-4 py-3">
                     <input type="checkbox" checked={selected.has(v.id)} onChange={() => toggle(v.id)} className="rounded border-zinc-300" />
@@ -133,6 +178,8 @@ export function PmAssignVehiclesClient({ vehicles, assignees }: { vehicles: Vehi
               ))}
             </tbody>
           </table>
+        </div>
+          )}
         </div>
       )}
     </div>
