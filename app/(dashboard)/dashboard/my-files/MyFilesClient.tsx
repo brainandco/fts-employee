@@ -86,6 +86,31 @@ export function MyFilesClient({ hasRegion, hasRegionFolder }: { hasRegion: boole
     }
   }
 
+  async function deleteAll() {
+    if (files.length === 0) return;
+    if (
+      !confirm(
+        "Delete ALL your files in My files? This removes every upload from storage and cannot be undone."
+      )
+    ) {
+      return;
+    }
+    setBusy(true);
+    setError("");
+    setMsg("");
+    try {
+      const res = await fetch("/api/employee-files/all", { method: "DELETE" });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((data as { message?: string }).message || "Delete all failed");
+      setMsg((data as { removed?: number }).removed ? `Removed ${(data as { removed: number }).removed} file(s).` : "All files removed.");
+      await load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Delete all failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function removeRow(id: string) {
     if (!confirm("Delete this file? This cannot be undone.")) return;
     setBusy(true);
@@ -146,17 +171,27 @@ export function MyFilesClient({ hasRegion, hasRegionFolder }: { hasRegion: boole
           />
           <p className="mt-1 text-xs text-zinc-500">Allowed: pdf, office documents, csv, and similar. Max size is set on the server.</p>
         </div>
-        <button
-          type="button"
-          onClick={() => {
-            setLoading(true);
-            load().finally(() => setLoading(false));
-          }}
-          disabled={busy}
-          className="rounded-md border border-zinc-200 bg-white px-3 py-1.5 text-sm font-medium text-zinc-800 shadow-sm hover:bg-zinc-50"
-        >
-          Refresh
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => {
+              setLoading(true);
+              load().finally(() => setLoading(false));
+            }}
+            disabled={busy}
+            className="rounded-md border border-zinc-200 bg-white px-3 py-1.5 text-sm font-medium text-zinc-800 shadow-sm hover:bg-zinc-50"
+          >
+            Refresh
+          </button>
+          <button
+            type="button"
+            onClick={deleteAll}
+            disabled={busy || files.length === 0}
+            className="rounded-md border border-rose-200 bg-rose-50 px-3 py-1.5 text-sm font-medium text-rose-800 shadow-sm hover:bg-rose-100 disabled:opacity-50"
+          >
+            Delete all my files
+          </button>
+        </div>
       </div>
       {msg && <p className="text-sm text-emerald-700">{msg}</p>}
       {error && <p className="text-sm text-red-600">{error}</p>}
