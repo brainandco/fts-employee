@@ -19,6 +19,13 @@ export function EmployeeNavGlyph({ href, className }: { href: string; className?
           <path d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.5 20.118a7.5 7.5 0 0 1 15 0A17.933 17.933 0 0 1 12 21.75c-2.676 0-5.216-.584-7.5-1.632Z" />
         </svg>
       );
+    case "/dashboard/my-files":
+      return (
+        <svg viewBox="0 0 24 24" aria-hidden {...p}>
+          <path d="M4 7h4l2-2h4l2 2h4v10a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V7Z" />
+          <path d="M12 11v6M9 14h6" />
+        </svg>
+      );
     case "/tasks":
       return (
         <svg viewBox="0 0 24 24" aria-hidden {...p}>

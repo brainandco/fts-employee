@@ -161,6 +161,7 @@ export default async function DashboardLayout({
     }
     workspaceItems.push(
       { href: "/dashboard/software", label: "Software library" },
+      { href: "/dashboard/my-files", label: "My files" },
       { href: "/tasks", label: "My tasks" },
       { href: "/dashboard/notifications", label: "Notifications" },
       { href: "/leave", label: "Leave" },
