@@ -4,7 +4,7 @@ import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { getDataClient } from "@/lib/supabase/server";
 import { buildEmployeeFileStorageKey, isAllowedEmployeeFileName, safeEmployeeFileName } from "@/lib/employee-files/storage";
-import { getWasabiEmployeeFilesBucket, getWasabiEmployeeFileMaxBytes, getWasabiS3Client } from "@/lib/wasabi/s3-client";
+import { getWasabiEmployeeFilesBucket, getWasabiEmployeeFileMaxBytes, getWasabiEmployeeFilesS3Client } from "@/lib/wasabi/s3-client";
 import { NextResponse } from "next/server";
 
 const PRESIGN_EXPIRES_SEC = 3600;
@@ -86,7 +86,7 @@ export async function POST(req: Request) {
   }
 
   try {
-    const s3 = getWasabiS3Client();
+    const s3 = getWasabiEmployeeFilesS3Client();
     const bucket = getWasabiEmployeeFilesBucket();
     const cmd = new PutObjectCommand({
       Bucket: bucket,

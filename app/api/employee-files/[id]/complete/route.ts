@@ -1,7 +1,7 @@
 import { HeadObjectCommand } from "@aws-sdk/client-s3";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { getDataClient } from "@/lib/supabase/server";
-import { getWasabiEmployeeFilesBucket, getWasabiS3Client } from "@/lib/wasabi/s3-client";
+import { getWasabiEmployeeFilesBucket, getWasabiEmployeeFilesS3Client } from "@/lib/wasabi/s3-client";
 import { NextResponse } from "next/server";
 
 /** POST — after browser PUTs to presigned URL, mark row active and set byte size. */
@@ -46,7 +46,7 @@ export async function POST(_req: Request, ctx: { params: Promise<{ id: string }>
   }
 
   const bucket = getWasabiEmployeeFilesBucket();
-  const s3 = getWasabiS3Client();
+  const s3 = getWasabiEmployeeFilesS3Client();
   let size: number | null = null;
   try {
     const head = await s3.send(new HeadObjectCommand({ Bucket: bucket, Key: row.storage_key }));

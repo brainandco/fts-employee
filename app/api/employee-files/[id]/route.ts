@@ -1,7 +1,7 @@
 import { DeleteObjectCommand } from "@aws-sdk/client-s3";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { getDataClient } from "@/lib/supabase/server";
-import { getWasabiEmployeeFilesBucket, getWasabiS3Client } from "@/lib/wasabi/s3-client";
+import { getWasabiEmployeeFilesBucket, getWasabiEmployeeFilesS3Client } from "@/lib/wasabi/s3-client";
 import { NextResponse } from "next/server";
 
 export async function DELETE(_req: Request, ctx: { params: Promise<{ id: string }> }) {
@@ -42,7 +42,7 @@ export async function DELETE(_req: Request, ctx: { params: Promise<{ id: string 
   }
 
   const bucket = getWasabiEmployeeFilesBucket();
-  const s3 = getWasabiS3Client();
+  const s3 = getWasabiEmployeeFilesS3Client();
   try {
     await s3.send(new DeleteObjectCommand({ Bucket: bucket, Key: row.storage_key }));
   } catch {
