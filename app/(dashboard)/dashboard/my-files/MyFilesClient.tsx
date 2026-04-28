@@ -19,7 +19,15 @@ function formatBytes(n: number | null): string {
   return `${(n / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-export function MyFilesClient({ hasRegion, hasRegionFolder }: { hasRegion: boolean; hasRegionFolder: boolean }) {
+export function MyFilesClient({
+  hasRegion,
+  hasRegionFolder,
+  canView,
+}: {
+  hasRegion: boolean;
+  hasRegionFolder: boolean;
+  canView: boolean;
+}) {
   const [files, setFiles] = useState<FileRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -38,14 +46,14 @@ export function MyFilesClient({ hasRegion, hasRegionFolder }: { hasRegion: boole
   }, []);
 
   useEffect(() => {
-    if (hasRegion && hasRegionFolder) {
+    if (hasRegion && hasRegionFolder && canView) {
       setLoading(true);
       load()
         .finally(() => setLoading(false));
     } else {
       setLoading(false);
     }
-  }, [hasRegion, hasRegionFolder, load]);
+  }, [hasRegion, hasRegionFolder, canView, load]);
 
   async function upload(f: File) {
     if (!f.size) {
@@ -78,7 +86,7 @@ export function MyFilesClient({ hasRegion, hasRegionFolder }: { hasRegion: boole
       const cj = await comp.json();
       if (!comp.ok) throw new Error(cj.message || "Complete failed");
       setMsg("File uploaded successfully.");
-      await load();
+      if (canView) await load();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Upload failed");
     } finally {
@@ -171,32 +179,38 @@ export function MyFilesClient({ hasRegion, hasRegionFolder }: { hasRegion: boole
           />
           <p className="mt-1 text-xs text-zinc-500">Allowed: pdf, office documents, csv, and similar. Max size is set on the server.</p>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <button
-            type="button"
-            onClick={() => {
-              setLoading(true);
-              load().finally(() => setLoading(false));
-            }}
-            disabled={busy}
-            className="rounded-md border border-zinc-200 bg-white px-3 py-1.5 text-sm font-medium text-zinc-800 shadow-sm hover:bg-zinc-50"
-          >
-            Refresh
-          </button>
-          <button
-            type="button"
-            onClick={deleteAll}
-            disabled={busy || files.length === 0}
-            className="rounded-md border border-rose-200 bg-rose-50 px-3 py-1.5 text-sm font-medium text-rose-800 shadow-sm hover:bg-rose-100 disabled:opacity-50"
-          >
-            Delete all my files
-          </button>
-        </div>
+        {canView ? (
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                setLoading(true);
+                load().finally(() => setLoading(false));
+              }}
+              disabled={busy}
+              className="rounded-md border border-zinc-200 bg-white px-3 py-1.5 text-sm font-medium text-zinc-800 shadow-sm hover:bg-zinc-50"
+            >
+              Refresh
+            </button>
+            <button
+              type="button"
+              onClick={deleteAll}
+              disabled={busy || files.length === 0}
+              className="rounded-md border border-rose-200 bg-rose-50 px-3 py-1.5 text-sm font-medium text-rose-800 shadow-sm hover:bg-rose-100 disabled:opacity-50"
+            >
+              Delete all my files
+            </button>
+          </div>
+        ) : null}
       </div>
       {msg && <p className="text-sm text-emerald-700">{msg}</p>}
       {error && <p className="text-sm text-red-600">{error}</p>}
 
-      {loading ? (
+      {!canView ? (
+        <div className="rounded-2xl border border-zinc-200 bg-white p-6 text-sm text-zinc-600">
+          You can upload files. Viewing and deleting is available for Project Managers, PP, and Team Leads.
+        </div>
+      ) : loading ? (
         <p className="text-sm text-zinc-500">Loading…</p>
       ) : files.length === 0 ? (
         <div className="rounded-2xl border border-zinc-200 bg-white p-6 text-sm text-zinc-600">You have not uploaded any files yet.</div>

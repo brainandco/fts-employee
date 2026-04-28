@@ -1,5 +1,6 @@
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { getDataClient } from "@/lib/supabase/server";
+import { resolveEmployeeFileAccess } from "@/lib/employee-files/access";
 import { NextResponse } from "next/server";
 
 /** GET — list current employee's own files. */
@@ -14,13 +15,12 @@ export async function GET() {
 
   const supabase = await getDataClient();
   const email = (session.user.email ?? "").trim().toLowerCase();
-  const { data: me } = await supabase
-    .from("employees")
-    .select("id, status, region_id")
-    .eq("email", email)
-    .maybeSingle();
-  if (!me || me.status !== "ACTIVE") {
+  const { employee: me, canView } = await resolveEmployeeFileAccess(supabase, email);
+  if (!me) {
     return NextResponse.json({ message: "No active employee profile" }, { status: 403 });
+  }
+  if (!canView) {
+    return NextResponse.json({ message: "View access is allowed for PM, PP, and Team Lead only." }, { status: 403 });
   }
 
   const { data: rows, error } = await supabase

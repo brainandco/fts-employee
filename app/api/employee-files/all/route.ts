@@ -1,5 +1,6 @@
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { getDataClient } from "@/lib/supabase/server";
+import { resolveEmployeeFileAccess } from "@/lib/employee-files/access";
 import { deleteS3Keys } from "@/lib/employee-files/batch-delete-s3";
 import { getWasabiEmployeeFilesBucket, getWasabiEmployeeFilesS3Client } from "@/lib/wasabi/s3-client";
 import { NextResponse } from "next/server";
@@ -18,13 +19,12 @@ export async function DELETE() {
 
   const supabase = await getDataClient();
   const email = (session.user.email ?? "").trim().toLowerCase();
-  const { data: me } = await supabase
-    .from("employees")
-    .select("id, status")
-    .eq("email", email)
-    .maybeSingle();
-  if (!me || me.status !== "ACTIVE") {
+  const { employee: me, canView } = await resolveEmployeeFileAccess(supabase, email);
+  if (!me) {
     return NextResponse.json({ message: "No active employee profile" }, { status: 403 });
+  }
+  if (!canView) {
+    return NextResponse.json({ message: "Delete is allowed for PM, PP, and Team Lead only." }, { status: 403 });
   }
 
   const { data: rows, error: qErr } = await supabase

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createServerSupabaseClient, getDataClient } from "@/lib/supabase/server";
+import { resolveEmployeeFileAccess } from "@/lib/employee-files/access";
 import { MyFilesClient } from "./MyFilesClient";
 
 export default async function MyFilesPage() {
@@ -12,11 +13,7 @@ export default async function MyFilesPage() {
 
   const supabase = await getDataClient();
   const email = (session.user.email ?? "").trim().toLowerCase();
-  const { data: employee } = await supabase
-    .from("employees")
-    .select("id, status, region_id")
-    .eq("email", email)
-    .maybeSingle();
+  const { employee, canView } = await resolveEmployeeFileAccess(supabase, email);
 
   if (!employee || employee.status !== "ACTIVE") redirect("/dashboard");
 
@@ -43,12 +40,11 @@ export default async function MyFilesPage() {
       <div className="rounded-2xl border border-indigo-200 bg-gradient-to-r from-indigo-50 to-violet-50 p-5 sm:p-6">
         <h1 className="text-2xl font-semibold text-zinc-900">My files</h1>
         <p className="mt-1 text-sm text-zinc-600">
-          Upload and manage your work files. They are stored in your team&apos;s region in secure cloud storage. Only
-          you can add or remove files in your own library; administrators can list regional files for support and
-          compliance.
+          Upload your work files to secure cloud storage under your region. Project Managers, PP, and Team Leads can
+          view and manage their own uploaded files; other employees can upload only.
         </p>
       </div>
-      <MyFilesClient hasRegion={hasRegion} hasRegionFolder={hasRegionFolder} />
+      <MyFilesClient hasRegion={hasRegion} hasRegionFolder={hasRegionFolder} canView={canView} />
     </div>
   );
 }
