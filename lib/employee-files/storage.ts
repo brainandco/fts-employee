@@ -13,6 +13,9 @@ const ALLOWED_EXT = new Set([
   "odt",
   "ods",
   "rtf",
+  "zip",
+  "rar",
+  "7z",
 ]);
 
 export function safeEmployeeFileName(name: string): string {
@@ -29,19 +32,91 @@ export function slugifyRegionPathSegment(s: string): string {
   return t || "region";
 }
 
-export function isAllowedEmployeeFileName(fileName: string): boolean {
-  const base = (fileName || "").split(/[\\/]/).pop() ?? "";
-  const m = base.match(/\.([a-z0-9]+)$/i);
-  if (!m) return false;
-  return ALLOWED_EXT.has(m[1].toLowerCase());
+/** Stable folder name under region: employee display name + short id (Wasabi path segment). */
+export function employeeNameFolderSlug(fullName: string | null, employeeId: string): string {
+  const namePart = slugifyRegionPathSegment((fullName ?? "employee").trim()) || "employee";
+  const idShort = employeeId.replace(/-/g, "").slice(0, 8);
+  return `${namePart}-${idShort}`;
 }
 
+/** e.g. Apr-2026 */
+export function formatMonthYearFolder(d: Date): string {
+  const m = d.toLocaleString("en-US", { month: "short" });
+  const y = d.getFullYear();
+  return `${m}-${y}`;
+}
+
+/** e.g. 28-Apr-2026 — day folder inside month-year */
+export function formatDayMonthYearFolder(d: Date): string {
+  const day = d.getDate();
+  const m = d.toLocaleString("en-US", { month: "short" });
+  const y = d.getFullYear();
+  return `${day}-${m}-${y}`;
+}
+
+/**
+ * Relative path under employee root (no leading/trailing slashes).
+ * Rejects ".." and empty segments.
+ */
+export function normalizeRelativePathUnderEmployee(input: string | null | undefined): string | null {
+  if (input == null || typeof input !== "string") return null;
+  const trimmed = input.trim().replace(/^\/+|\/+$/g, "");
+  if (!trimmed) return null;
+  const parts = trimmed.split("/").filter(Boolean);
+  const out: string[] = [];
+  for (const p of parts) {
+    if (p === ".." || p === ".") return null;
+    const s = p.trim().slice(0, 180);
+    if (!s) return null;
+    out.push(s.replace(/[^\w.\-()+ @&$=!*,?:;/]/g, "_"));
+  }
+  return out.join("/");
+}
+
+export function buildEmployeeRootPrefix(regionSegment: string, fullName: string | null, employeeId: string): string {
+  const keyPrefix = getWasabiEmployeeFilesKeyPrefix();
+  const emp = employeeNameFolderSlug(fullName, employeeId);
+  return `${keyPrefix}/${regionSegment}/${emp}/`;
+}
+
+export type BuildEmployeeKeyOptions = {
+  /** If set, file is stored under this path below the employee folder (no default month/day). */
+  relativePath?: string | null;
+  /** Used when relativePath is omitted; defaults to now. */
+  uploadDate?: Date;
+};
+
 export function buildEmployeeFileStorageKey(
-  pathSegment: string,
+  regionSegment: string,
+  fullName: string | null,
   employeeId: string,
   fileId: string,
-  originalName: string
+  originalName: string,
+  options?: BuildEmployeeKeyOptions
 ): string {
   const keyPrefix = getWasabiEmployeeFilesKeyPrefix();
-  return `${keyPrefix}/${pathSegment}/employees/${employeeId}/${fileId}/${safeEmployeeFileName(originalName)}`;
+  const emp = employeeNameFolderSlug(fullName, employeeId);
+  const safe = safeEmployeeFileName(originalName);
+  const shortId = fileId.replace(/-/g, "").slice(0, 8);
+  const objectName = `${shortId}-${safe}`;
+
+  const rel = normalizeRelativePathUnderEmployee(options?.relativePath ?? null);
+  let tail: string;
+  if (rel) {
+    tail = `${rel}/${objectName}`;
+  } else {
+    const d = options?.uploadDate ?? new Date();
+    const my = formatMonthYearFolder(d);
+    const dy = formatDayMonthYearFolder(d);
+    tail = `${my}/${dy}/${objectName}`;
+  }
+
+  return `${keyPrefix}/${regionSegment}/${emp}/${tail}`;
+}
+
+export function isAllowedEmployeeFileName(fileName: string): boolean {
+  const base = (fileName || "").split(/[\\/]/).pop() ?? "";
+  const m = base.match(/\.([a-zA-Z0-9]+)$/);
+  if (!m) return false;
+  return ALLOWED_EXT.has(m[1].toLowerCase());
 }

@@ -3,13 +3,32 @@ import { PutObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { getDataClient } from "@/lib/supabase/server";
-import { buildEmployeeFileStorageKey, isAllowedEmployeeFileName, safeEmployeeFileName } from "@/lib/employee-files/storage";
+import {
+  buildEmployeeFileStorageKey,
+  isAllowedEmployeeFileName,
+  normalizeRelativePathUnderEmployee,
+  safeEmployeeFileName,
+} from "@/lib/employee-files/storage";
 import { getWasabiEmployeeFilesBucket, getWasabiEmployeeFileMaxBytes, getWasabiEmployeeFilesS3Client } from "@/lib/wasabi/s3-client";
 import { NextResponse } from "next/server";
 
 const PRESIGN_EXPIRES_SEC = 3600;
 
-type Body = { fileName?: string; contentType?: string; byteSize?: number | null };
+type Body = {
+  fileName?: string;
+  contentType?: string;
+  byteSize?: number | null;
+  /** Path under your employee folder, e.g. Apr-2026/28-Apr-2026 or custom segments. Empty uses month/day from uploadDate or today. */
+  relativePath?: string | null;
+  /** ISO date string — used with default month/year/day folders when relativePath is omitted. */
+  uploadDate?: string | null;
+};
+
+function parseUploadDate(iso: string | null | undefined): Date | undefined {
+  if (!iso || typeof iso !== "string") return undefined;
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? undefined : d;
+}
 
 export async function POST(req: Request) {
   const userClient = await createServerSupabaseClient();
@@ -30,7 +49,10 @@ export async function POST(req: Request) {
   const fileName = safeEmployeeFileName(String(body.fileName ?? ""));
   if (!isAllowedEmployeeFileName(fileName)) {
     return NextResponse.json(
-      { message: "File type not allowed. Use office or data types (e.g. pdf, doc, docx, xlsx, csv, ppt)." },
+      {
+        message:
+          "File type not allowed. Use office or data types (e.g. pdf, doc, docx, xlsx, csv, ppt, zip, rar).",
+      },
       { status: 400 }
     );
   }
@@ -41,11 +63,19 @@ export async function POST(req: Request) {
     return NextResponse.json({ message: `File exceeds maximum size (${maxB} bytes)` }, { status: 400 });
   }
 
+  const relRaw = body.relativePath;
+  const relativePath = relRaw != null && String(relRaw).trim() !== "" ? normalizeRelativePathUnderEmployee(String(relRaw)) : null;
+  if (relRaw != null && String(relRaw).trim() !== "" && !relativePath) {
+    return NextResponse.json({ message: "Invalid relativePath" }, { status: 400 });
+  }
+
+  const uploadDate = parseUploadDate(body.uploadDate ?? undefined);
+
   const supabase = await getDataClient();
   const email = (session.user.email ?? "").trim().toLowerCase();
   const { data: me } = await supabase
     .from("employees")
-    .select("id, status, region_id")
+    .select("id, status, region_id, full_name")
     .eq("email", email)
     .maybeSingle();
   if (!me || me.status !== "ACTIVE") {
@@ -63,13 +93,19 @@ export async function POST(req: Request) {
 
   if (folderErr || !folder) {
     return NextResponse.json(
-      { message: "File uploads are not enabled for your region yet. An administrator must create the region folder first." },
+      {
+        message:
+          "File uploads are not enabled for your region yet. An administrator must create the region folder first.",
+      },
       { status: 400 }
     );
   }
 
   const fileId = randomUUID();
-  const storageKey = buildEmployeeFileStorageKey(folder.path_segment, me.id, fileId, fileName);
+  const storageKey = buildEmployeeFileStorageKey(folder.path_segment, me.full_name ?? null, me.id, fileId, fileName, {
+    relativePath,
+    uploadDate,
+  });
 
   const { error: insErr } = await supabase.from("employee_personal_files").insert({
     id: fileId,
