@@ -18,6 +18,10 @@ const ALLOWED_EXT = new Set([
   "7z",
 ]);
 
+/** Short list for UI copy (must match ALLOWED_EXT). */
+export const EMPLOYEE_UPLOAD_ALLOWED_EXTENSIONS_HELP =
+  "pdf, txt, csv, xls, xlsx, doc, docx, ppt, pptx, odt, ods, rtf, zip, rar, 7z";
+
 export function safeEmployeeFileName(name: string): string {
   const n = (name || "file").trim().replace(/[^\w.\-()+ @&$=!*,?:;]/g, "_");
   return n.slice(0, 200) || "file.bin";

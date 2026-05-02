@@ -2,6 +2,9 @@
 
 import { useCallback, useEffect, useState, type InputHTMLAttributes } from "react";
 import { employeeUploadFilesBatch } from "@/lib/employee-files/batch-upload-client";
+import { EMPLOYEE_UPLOAD_ALLOWED_EXTENSIONS_HELP } from "@/lib/employee-files/storage";
+import { filterEmployeeUploadItems, type SkippedUpload } from "@/lib/employee-files/upload-filter";
+import { ConfirmModal, NoticeModal } from "@/components/my-files/MyFilesDialogs";
 
 type FileRow = {
   id: string;
@@ -81,6 +84,10 @@ export function MyFilesClient({
   const [browseFolders, setBrowseFolders] = useState<BrowseFolder[]>([]);
   const [browseFiles, setBrowseFiles] = useState<BrowseFile[]>([]);
   const [newSubfolderName, setNewSubfolderName] = useState("");
+
+  const [deleteAllModalOpen, setDeleteAllModalOpen] = useState(false);
+  const [pendingDeleteFile, setPendingDeleteFile] = useState<{ id: string; name: string } | null>(null);
+  const [skippedFilesModal, setSkippedFilesModal] = useState<SkippedUpload[] | null>(null);
 
   const uploadTargetPath = browsePath.trim();
 
@@ -179,8 +186,19 @@ export function MyFilesClient({
         const combined = [base, sub.replace(/\\/g, "/")].filter(Boolean).join("/");
         return { file: f, ...(combined ? { relativePath: combined } : {}) };
       });
-      const { uploaded, failed } = await employeeUploadFilesBatch(items);
-      setMsg(`Uploaded ${uploaded} file(s).${failed.length ? ` ${failed.length} could not be uploaded.` : ""}`);
+      const { allowed, skipped } = filterEmployeeUploadItems(items);
+      if (allowed.length === 0) {
+        if (skipped.length) setSkippedFilesModal(skipped);
+        setMsg("No supported files to upload. Check the dialog for skipped names and allowed types.");
+        if (canView) await load();
+        await loadBrowse();
+        return;
+      }
+      const { uploaded, failed } = await employeeUploadFilesBatch(allowed);
+      if (skipped.length) setSkippedFilesModal(skipped);
+      setMsg(
+        `Uploaded ${uploaded} file(s).${skipped.length ? ` ${skipped.length} skipped (unsupported or empty).` : ""}${failed.length ? ` ${failed.length} could not be uploaded.` : ""}`
+      );
       if (failed.length) {
         setError(failed.slice(0, 6).map((x) => `${x.name}: ${x.message}`).join(" · "));
       }
@@ -193,16 +211,10 @@ export function MyFilesClient({
     }
   }
 
-  async function deleteAll() {
-    if (files.length === 0) return;
-    if (
-      !confirm(
-        "Delete ALL your files in My files? This removes every upload from storage and cannot be undone."
-      )
-    ) {
-      return;
-    }
+  async function executeDeleteAll() {
+    if (files.length === 0 || busy) return;
     setBusy(true);
+    setDeleteAllModalOpen(false);
     setError("");
     setMsg("");
     try {
@@ -219,8 +231,9 @@ export function MyFilesClient({
     }
   }
 
-  async function removeRow(id: string) {
-    if (!confirm("Delete this file? This cannot be undone.")) return;
+  async function executeDeleteOne(id: string) {
+    if (busy) return;
+    setPendingDeleteFile(null);
     setBusy(true);
     setError("");
     const res = await fetch(`/api/employee-files/${id}`, { method: "DELETE" });
@@ -317,7 +330,7 @@ export function MyFilesClient({
             {canView ? (
               <button
                 type="button"
-                onClick={deleteAll}
+                onClick={() => setDeleteAllModalOpen(true)}
                 disabled={busy || files.length === 0}
                 className="rounded-md border border-rose-200 bg-rose-50 px-3 py-1.5 text-xs font-medium text-rose-800 shadow-sm hover:bg-rose-100 disabled:opacity-50"
               >
@@ -415,7 +428,9 @@ export function MyFilesClient({
                             {" · "}
                             <button
                               type="button"
-                              onClick={() => removeRow(f.db!.id)}
+                              onClick={() =>
+                                setPendingDeleteFile({ id: f.db!.id, name: f.name || f.db!.file_name })
+                              }
                               disabled={busy}
                               className="text-rose-600 hover:underline disabled:opacity-50"
                             >
@@ -468,9 +483,13 @@ export function MyFilesClient({
 
       <div className="rounded-2xl border border-zinc-200 bg-white p-4">
         <h3 className="text-sm font-semibold text-zinc-900">Upload into current location</h3>
-        <p className="mt-1 text-xs text-zinc-500">
-          Types: pdf, Office, csv, zip, rar, 7z (server limit applies). Folder upload keeps inner paths under the location
-          shown in green above.
+        <p className="mt-1 rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs text-zinc-700">
+          <span className="font-medium text-zinc-900">Allowed file types:</span> {EMPLOYEE_UPLOAD_ALLOWED_EXTENSIONS_HELP}.
+          Archives <strong>zip</strong>, <strong>rar</strong>, and <strong>7z</strong> are supported. Other extensions are
+          skipped so your upload is not blocked by a single unsupported file. Server size limits still apply.
+        </p>
+        <p className="mt-2 text-xs text-zinc-500">
+          Folder upload keeps inner paths under the location shown in green above.
         </p>
         <div className="mt-3 space-y-3">
           <div>
@@ -488,11 +507,23 @@ export function MyFilesClient({
                   setError("");
                   setMsg("");
                   try {
+                    const raw = Array.from(list).map((f) => ({ file: f }));
+                    const { allowed, skipped } = filterEmployeeUploadItems(raw);
+                    if (allowed.length === 0) {
+                      if (skipped.length) setSkippedFilesModal(skipped);
+                      setMsg("No supported files to upload. Check the dialog for skipped names and allowed types.");
+                      if (canView) await load();
+                      await loadBrowse();
+                      return;
+                    }
                     const { uploaded, failed } = await employeeUploadFilesBatch(
-                      Array.from(list).map((f) => ({ file: f })),
+                      allowed,
                       uploadTargetPath ? { defaultRelativePath: uploadTargetPath } : {}
                     );
-                    setMsg(`Uploaded ${uploaded} file(s).${failed.length ? ` ${failed.length} could not be uploaded.` : ""}`);
+                    if (skipped.length) setSkippedFilesModal(skipped);
+                    setMsg(
+                      `Uploaded ${uploaded} file(s).${skipped.length ? ` ${skipped.length} skipped (unsupported or empty).` : ""}${failed.length ? ` ${failed.length} could not be uploaded.` : ""}`
+                    );
                     if (failed.length) {
                       setError(failed.slice(0, 6).map((x) => `${x.name}: ${x.message}`).join(" · "));
                     }
@@ -565,7 +596,7 @@ export function MyFilesClient({
                       ) : null}{" "}
                       <button
                         type="button"
-                        onClick={() => removeRow(r.id)}
+                        onClick={() => setPendingDeleteFile({ id: r.id, name: r.file_name })}
                         disabled={busy}
                         className="text-rose-600 hover:underline disabled:opacity-50"
                       >
@@ -579,6 +610,58 @@ export function MyFilesClient({
           </div>
         )
       ) : null}
+
+      <ConfirmModal
+        open={deleteAllModalOpen}
+        title="Delete all my files?"
+        confirmLabel="Delete everything"
+        cancelLabel="Cancel"
+        danger
+        busy={busy}
+        onCancel={() => setDeleteAllModalOpen(false)}
+        onConfirm={() => void executeDeleteAll()}
+      >
+        This removes <strong>every</strong> upload from My files in storage and cannot be undone. If you are sure, click
+        Delete everything.
+      </ConfirmModal>
+
+      <ConfirmModal
+        open={!!pendingDeleteFile}
+        title="Delete this file?"
+        confirmLabel="Delete"
+        cancelLabel="Cancel"
+        danger
+        busy={busy}
+        onCancel={() => setPendingDeleteFile(null)}
+        onConfirm={() => pendingDeleteFile && void executeDeleteOne(pendingDeleteFile.id)}
+      >
+        {pendingDeleteFile ? (
+          <>
+            <span className="font-mono text-zinc-800">{pendingDeleteFile.name}</span> will be removed from storage. This
+            cannot be undone.
+          </>
+        ) : null}
+      </ConfirmModal>
+
+      <NoticeModal
+        open={!!skippedFilesModal?.length}
+        title="Some files were not uploaded"
+        onClose={() => setSkippedFilesModal(null)}
+      >
+        <p className="mb-3">
+          Only these extensions are allowed: <strong>{EMPLOYEE_UPLOAD_ALLOWED_EXTENSIONS_HELP}</strong>. Archives{" "}
+          <strong>zip</strong>, <strong>rar</strong>, and <strong>7z</strong> count as allowed types. The following were
+          skipped:
+        </p>
+        <ul className="list-disc space-y-1 pl-5 font-mono text-xs text-zinc-800">
+          {(skippedFilesModal ?? []).map((s, i) => (
+            <li key={`${i}:${s.name}`}>
+              {s.name}
+              <span className="ml-2 font-sans text-zinc-500">({s.reason})</span>
+            </li>
+          ))}
+        </ul>
+      </NoticeModal>
     </div>
   );
 }
