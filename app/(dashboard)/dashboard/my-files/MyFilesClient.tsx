@@ -485,11 +485,17 @@ export function MyFilesClient({
         <h3 className="text-sm font-semibold text-zinc-900">Upload into current location</h3>
         <p className="mt-1 rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs text-zinc-700">
           <span className="font-medium text-zinc-900">Allowed file types:</span> {EMPLOYEE_UPLOAD_ALLOWED_EXTENSIONS_HELP}.
-          Archives <strong>zip</strong>, <strong>rar</strong>, and <strong>7z</strong> are supported. Other extensions are
-          skipped so your upload is not blocked by a single unsupported file. Server size limits still apply.
+          Includes images (<strong>png</strong>, <strong>jpg</strong>/<strong>jpeg</strong>, <strong>webp</strong>,{" "}
+          <strong>svg</strong>) and archives (<strong>zip</strong>, <strong>rar</strong>, <strong>7z</strong>). Unsupported
+          files in a folder pick are skipped so the rest can still upload. Server size limits still apply.
         </p>
         <p className="mt-2 text-xs text-zinc-500">
           Folder upload keeps inner paths under the location shown in green above.
+        </p>
+        <p className="mt-2 rounded-md border border-amber-100 bg-amber-50/90 px-3 py-2 text-xs text-amber-950">
+          <strong>Browser note:</strong> When you choose a folder, Chrome/Edge may show a system dialog such as &quot;Upload
+          N files to this site?&quot; That is your browser&apos;s security prompt for folder uploads — this app cannot
+          replace it. Choose <strong>Upload</strong> there to continue; then wait for the green status line below.
         </p>
         <div className="mt-3 space-y-3">
           <div>
@@ -649,9 +655,8 @@ export function MyFilesClient({
         onClose={() => setSkippedFilesModal(null)}
       >
         <p className="mb-3">
-          Only these extensions are allowed: <strong>{EMPLOYEE_UPLOAD_ALLOWED_EXTENSIONS_HELP}</strong>. Archives{" "}
-          <strong>zip</strong>, <strong>rar</strong>, and <strong>7z</strong> count as allowed types. The following were
-          skipped:
+          Only these extensions are allowed: <strong>{EMPLOYEE_UPLOAD_ALLOWED_EXTENSIONS_HELP}</strong> (including images
+          and archives). The following were skipped:
         </p>
         <ul className="list-disc space-y-1 pl-5 font-mono text-xs text-zinc-800">
           {(skippedFilesModal ?? []).map((s, i) => (

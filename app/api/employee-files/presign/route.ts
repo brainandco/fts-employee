@@ -51,7 +51,7 @@ export async function POST(req: Request) {
     return NextResponse.json(
       {
         message:
-          "File type not allowed. Use office or data types (e.g. pdf, doc, docx, xlsx, csv, ppt, zip, rar).",
+          "File type not allowed. Use office, data, image, or archive types (e.g. pdf, docx, xlsx, png, jpg, webp, svg, zip, rar).",
       },
       { status: 400 }
     );

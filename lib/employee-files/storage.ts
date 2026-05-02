@@ -16,11 +16,16 @@ const ALLOWED_EXT = new Set([
   "zip",
   "rar",
   "7z",
+  "png",
+  "jpg",
+  "jpeg",
+  "webp",
+  "svg",
 ]);
 
 /** Short list for UI copy (must match ALLOWED_EXT). */
 export const EMPLOYEE_UPLOAD_ALLOWED_EXTENSIONS_HELP =
-  "pdf, txt, csv, xls, xlsx, doc, docx, ppt, pptx, odt, ods, rtf, zip, rar, 7z";
+  "pdf, txt, csv, xls, xlsx, doc, docx, ppt, pptx, odt, ods, rtf, zip, rar, 7z, png, jpg, jpeg, webp, svg";
 
 export function safeEmployeeFileName(name: string): string {
   const n = (name || "file").trim().replace(/[^\w.\-()+ @&$=!*,?:;]/g, "_");
