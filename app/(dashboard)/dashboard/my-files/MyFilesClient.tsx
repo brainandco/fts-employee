@@ -159,6 +159,7 @@ export function MyFilesClient({
   const [browseFolders, setBrowseFolders] = useState<BrowseFolder[]>([]);
   const [browseFiles, setBrowseFiles] = useState<BrowseFile[]>([]);
   const [newSubfolderName, setNewSubfolderName] = useState("");
+  const [calendarDate, setCalendarDate] = useState(() => new Date().toISOString().slice(0, 10));
 
   const [deleteAllModalOpen, setDeleteAllModalOpen] = useState(false);
   const [pendingDeleteFile, setPendingDeleteFile] = useState<{ id: string; name: string } | null>(null);
@@ -224,6 +225,33 @@ export function MyFilesClient({
       await Promise.all([canView ? load() : Promise.resolve(), loadBrowse()]);
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function createDatedFolderFromCalendar() {
+    const d = new Date(`${calendarDate}T12:00:00`);
+    if (Number.isNaN(d.getTime())) {
+      setError("Pick a valid date.");
+      return;
+    }
+    const relativePath = `${monthYearFolder(d)}/${dayMonthYearFolder(d)}`;
+    setBusy(true);
+    setError("");
+    setMsg("");
+    try {
+      const res = await fetch("/api/employee-files/folders", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ relativePath }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((data as { message?: string }).message || "Create folder failed");
+      setMsg(`Date folder “${relativePath}” is ready.`);
+      setBrowsePath(relativePath);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Create folder failed");
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -433,8 +461,9 @@ export function MyFilesClient({
             Day folder automatically.
           </li>
           <li>
-            To add a new folder <em>inside the current location</em>, type one name under &quot;New folder&quot; and click
-            Create — that is the only place folders are created.
+            At <strong>Home</strong>, pick a date on the calendar to create the <span className="font-mono">Month-Year / Day</span>{" "}
+            folder under your name. Inside that folder, use <strong>New folder</strong> for each Site ID (or any name you
+            choose).
           </li>
         </ol>
       </div>
@@ -599,29 +628,62 @@ export function MyFilesClient({
         )}
 
         <div className="mt-4 border-t border-zinc-100 pt-4">
-          <h4 className="text-xs font-semibold uppercase tracking-wide text-zinc-500">New folder (inside current location)</h4>
-          <p className="mt-1 text-xs text-zinc-500">
-            Only this field creates folders. Enter a <strong>single</strong> name (e.g. <code className="rounded bg-zinc-100 px-1">Reports</code>
-            ) — it appears inside the folder you have open above.
-          </p>
-          <div className="mt-2 flex flex-wrap items-end gap-2">
-            <input
-              type="text"
-              value={newSubfolderName}
-              onChange={(e) => setNewSubfolderName(e.target.value)}
-              placeholder="e.g. Reports"
-              disabled={busy}
-              className="min-w-[200px] flex-1 rounded-md border border-zinc-300 px-3 py-2 text-sm"
-            />
-            <button
-              type="button"
-              onClick={() => void createSubfolder()}
-              disabled={busy}
-              className="rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
-            >
-              Create folder
-            </button>
-          </div>
+          {uploadTargetPath === "" ? (
+            <div>
+              <h4 className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Create a date folder (under your name)</h4>
+              <p className="mt-1 text-xs text-zinc-500">
+                Pick a date on the calendar. We create the <span className="font-mono">Month-Year / Day</span> path for you
+                (same layout as automatic uploads). Open that folder, then add a Site ID folder with <strong>New folder</strong>{" "}
+                below.
+              </p>
+              <div className="mt-2 flex flex-wrap items-end gap-3">
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-zinc-600">Date</label>
+                  <input
+                    type="date"
+                    value={calendarDate}
+                    onChange={(e) => setCalendarDate(e.target.value)}
+                    disabled={busy}
+                    className="rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm shadow-sm"
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={() => void createDatedFolderFromCalendar()}
+                  disabled={busy}
+                  className="rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+                >
+                  Create folder for this date
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div>
+              <h4 className="text-xs font-semibold uppercase tracking-wide text-zinc-500">New folder (inside current location)</h4>
+              <p className="mt-1 text-xs text-zinc-500">
+                Enter a <strong>single</strong> folder name (e.g. your <strong>Site ID</strong>) — it is created inside the
+                folder you have open above.
+              </p>
+              <div className="mt-2 flex flex-wrap items-end gap-2">
+                <input
+                  type="text"
+                  value={newSubfolderName}
+                  onChange={(e) => setNewSubfolderName(e.target.value)}
+                  placeholder="e.g. ZJZ766"
+                  disabled={busy}
+                  className="min-w-[200px] flex-1 rounded-md border border-zinc-300 px-3 py-2 text-sm"
+                />
+                <button
+                  type="button"
+                  onClick={() => void createSubfolder()}
+                  disabled={busy}
+                  className="rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+                >
+                  Create folder
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
