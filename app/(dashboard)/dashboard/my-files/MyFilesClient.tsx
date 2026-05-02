@@ -1,10 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useState, type InputHTMLAttributes } from "react";
-import { employeeUploadFilesBatch } from "@/lib/employee-files/batch-upload-client";
+import { useCallback, useEffect, useRef, useState, type InputHTMLAttributes } from "react";
+import { employeeUploadFilesBatch, type EmployeeUploadItem } from "@/lib/employee-files/batch-upload-client";
 import { EMPLOYEE_UPLOAD_ALLOWED_EXTENSIONS_HELP } from "@/lib/employee-files/storage";
 import { filterEmployeeUploadItems, type SkippedUpload } from "@/lib/employee-files/upload-filter";
 import { ConfirmModal, NoticeModal } from "@/components/my-files/MyFilesDialogs";
+import { MyFilesUploadModal, type UploadModalRow } from "@/components/my-files/MyFilesUploadModal";
 
 type FileRow = {
   id: string;
@@ -64,6 +65,80 @@ function sanitizeSubfolderName(raw: string): string | null {
   return cleaned || null;
 }
 
+function folderLabelFromPickedFiles(files: File[]): string | undefined {
+  const f = files[0] as File & { webkitRelativePath?: string };
+  const wr = f?.webkitRelativePath;
+  if (!wr) return undefined;
+  const seg = wr.split("/")[0];
+  return seg || undefined;
+}
+
+function buildFolderUploadItems(picked: File[], base: string): EmployeeUploadItem[] {
+  return picked.map((f) => {
+    const wr = (f as File & { webkitRelativePath?: string }).webkitRelativePath;
+    const sub = wr && wr.includes("/") ? wr.slice(0, wr.lastIndexOf("/")) : "";
+    const combined = [base, sub.replace(/\\/g, "/")].filter(Boolean).join("/");
+    return { file: f, ...(combined ? { relativePath: combined } : {}) };
+  });
+}
+
+function buildUploadRows(items: EmployeeUploadItem[], kind: "files" | "folder", uploadTargetPath: string): UploadModalRow[] {
+  const todayPath = todayStoragePath();
+  const destLabel = uploadTargetPath.trim() || todayPath;
+  return items.map((it, i) => {
+    const rel = it.relativePath?.trim();
+    const pathLabel =
+      kind === "folder" && rel ? `${rel}/${it.file.name}` : destLabel;
+    return {
+      id: String(i),
+      displayName: it.file.name,
+      storagePath: pathLabel,
+      status: "queued",
+      bytesLoaded: 0,
+      bytesTotal: Math.max(0, it.file.size),
+    };
+  });
+}
+
+function overallUploadPercent(rows: UploadModalRow[]): number {
+  let sumWt = 0;
+  let sumDone = 0;
+  for (const r of rows) {
+    const w = Math.max(1, r.bytesTotal);
+    sumWt += w;
+    if (r.status === "done" || r.status === "failed") sumDone += w;
+    else if (r.status === "uploading") sumDone += Math.min(Math.max(0, r.bytesLoaded), r.bytesTotal);
+  }
+  return sumWt > 0 ? (100 * sumDone) / sumWt : 0;
+}
+
+function mergeFailedIntoRows(
+  rows: UploadModalRow[],
+  failed: { name: string; message: string }[],
+  baseline: UploadModalRow[]
+): UploadModalRow[] {
+  if (!failed.length) return rows;
+  const byName = new Map(failed.map((f) => [f.name, f.message]));
+  return rows.map((r, i) => {
+    if (r.status === "failed" && r.errorMessage) return r;
+    const msg = byName.get(r.displayName) ?? byName.get(baseline[i]?.displayName ?? "");
+    if (msg) return { ...r, status: "failed" as const, errorMessage: msg };
+    return r;
+  });
+}
+
+type UploadSessionState = {
+  step: "review" | "upload" | "done";
+  kind: "files" | "folder";
+  folderName?: string;
+  items: EmployeeUploadItem[];
+  skipped: SkippedUpload[];
+  rows: UploadModalRow[];
+  busy: boolean;
+  pageError?: string;
+  summary?: { uploaded: number; failed: number; skipped: number };
+};
+
 export function MyFilesClient({
   hasRegion,
   hasRegionFolder,
@@ -88,8 +163,15 @@ export function MyFilesClient({
   const [deleteAllModalOpen, setDeleteAllModalOpen] = useState(false);
   const [pendingDeleteFile, setPendingDeleteFile] = useState<{ id: string; name: string } | null>(null);
   const [skippedFilesModal, setSkippedFilesModal] = useState<SkippedUpload[] | null>(null);
+  const [uploadSession, setUploadSession] = useState<UploadSessionState | null>(null);
+
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const folderInputRef = useRef<HTMLInputElement>(null);
+  const uploadInFlightRef = useRef(false);
 
   const uploadTargetPath = browsePath.trim();
+  const uploadFlowBusy = uploadSession !== null && uploadSession.step === "upload" && uploadSession.busy;
+  const blockFilePickers = busy || uploadFlowBusy;
 
   const load = useCallback(async () => {
     setError("");
@@ -173,41 +255,103 @@ export function MyFilesClient({
     }
   }
 
-  async function uploadFolderPick(list: FileList | null) {
-    if (!list?.length) return;
-    setBusy(true);
+  function closeUploadModal() {
+    if (uploadSession?.step === "upload" && uploadSession.busy) return;
+    uploadInFlightRef.current = false;
+    setUploadSession(null);
+  }
+
+  async function runUploadFromModal() {
+    if (uploadInFlightRef.current) return;
+    if (!uploadSession || uploadSession.step !== "review" || uploadSession.items.length === 0) return;
+    uploadInFlightRef.current = true;
+    const { items, skipped, kind } = uploadSession;
+    const rowsSnapshot = uploadSession.rows;
+    setUploadSession({ ...uploadSession, step: "upload", busy: true, pageError: undefined });
     setError("");
     setMsg("");
     try {
-      const base = uploadTargetPath;
-      const items = Array.from(list).map((f) => {
-        const wr = (f as File & { webkitRelativePath?: string }).webkitRelativePath;
-        const sub = wr && wr.includes("/") ? wr.slice(0, wr.lastIndexOf("/")) : "";
-        const combined = [base, sub.replace(/\\/g, "/")].filter(Boolean).join("/");
-        return { file: f, ...(combined ? { relativePath: combined } : {}) };
+      const result = await employeeUploadFilesBatch(items, {
+        defaultRelativePath: kind === "files" ? (uploadTargetPath || undefined) : undefined,
+        callbacks: {
+          onFileStatus: (index, status, message) => {
+            setUploadSession((prev) => {
+              if (!prev) return prev;
+              const nextStatus: UploadModalRow["status"] =
+                status === "uploading" ? "uploading" : status === "done" ? "done" : "failed";
+              const rows = prev.rows.map((r) =>
+                r.id === String(index)
+                  ? {
+                      ...r,
+                      status: nextStatus,
+                      errorMessage: message,
+                    }
+                  : r
+              );
+              return { ...prev, rows };
+            });
+          },
+          onFileProgress: (index, loaded, total) => {
+            setUploadSession((prev) => {
+              if (!prev) return prev;
+              const rows = prev.rows.map((r) =>
+                r.id === String(index)
+                  ? { ...r, bytesLoaded: loaded, bytesTotal: total > 0 ? total : r.bytesTotal }
+                  : r
+              );
+              return { ...prev, rows };
+            });
+          },
+        },
       });
-      const { allowed, skipped } = filterEmployeeUploadItems(items);
-      if (allowed.length === 0) {
-        if (skipped.length) setSkippedFilesModal(skipped);
-        setMsg("No supported files to upload. Check the dialog for skipped names and allowed types.");
-        if (canView) await load();
-        await loadBrowse();
-        return;
-      }
-      const { uploaded, failed } = await employeeUploadFilesBatch(allowed);
-      if (skipped.length) setSkippedFilesModal(skipped);
+
       setMsg(
-        `Uploaded ${uploaded} file(s).${skipped.length ? ` ${skipped.length} skipped (unsupported or empty).` : ""}${failed.length ? ` ${failed.length} could not be uploaded.` : ""}`
+        `Uploaded ${result.uploaded} file(s).${skipped.length ? ` ${skipped.length} skipped before upload.` : ""}${result.failed.length ? ` ${result.failed.length} could not be uploaded.` : ""}`
       );
-      if (failed.length) {
-        setError(failed.slice(0, 6).map((x) => `${x.name}: ${x.message}`).join(" · "));
+      if (result.failed.length) {
+        setError(result.failed.slice(0, 6).map((x) => `${x.name}: ${x.message}`).join(" · "));
       }
+
+      setUploadSession((prev) =>
+        prev
+          ? {
+              ...prev,
+              step: "done",
+              busy: false,
+              rows: mergeFailedIntoRows(prev.rows, result.failed, rowsSnapshot),
+              summary: {
+                uploaded: result.uploaded,
+                failed: result.failed.length,
+                skipped: skipped.length,
+              },
+              pageError: result.failed.length
+                ? result.failed
+                    .slice(0, 4)
+                    .map((x) => `${x.name}: ${x.message}`)
+                    .join(" · ")
+                : undefined,
+            }
+          : prev
+      );
+
       if (canView) await load();
       await loadBrowse();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Upload failed");
+      const msg = e instanceof Error ? e.message : "Upload failed";
+      setError(msg);
+      setUploadSession((prev) =>
+        prev
+          ? {
+              ...prev,
+              step: "done",
+              busy: false,
+              pageError: msg,
+              summary: { uploaded: 0, failed: items.length, skipped: skipped.length },
+            }
+          : prev
+      );
     } finally {
-      setBusy(false);
+      uploadInFlightRef.current = false;
     }
   }
 
@@ -313,7 +457,7 @@ export function MyFilesClient({
           <div className="flex flex-wrap gap-2">
             <button
               type="button"
-              disabled={busy || browseLoading}
+              disabled={busy || browseLoading || uploadFlowBusy}
               onClick={() => setBrowsePath(todayStoragePath())}
               className="rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-xs font-medium text-zinc-800 shadow-sm hover:bg-zinc-50 disabled:opacity-50"
             >
@@ -321,7 +465,7 @@ export function MyFilesClient({
             </button>
             <button
               type="button"
-              disabled={busy || browseLoading}
+              disabled={busy || browseLoading || uploadFlowBusy}
               onClick={() => void refreshAll()}
               className="rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-xs font-medium text-zinc-800 shadow-sm hover:bg-zinc-50 disabled:opacity-50"
             >
@@ -498,66 +642,89 @@ export function MyFilesClient({
           replace it. Choose <strong>Upload</strong> there to continue; then wait for the green status line below.
         </p>
         <div className="mt-3 space-y-3">
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            className="sr-only"
+            disabled={blockFilePickers}
+            onChange={(e) => {
+              const picked = e.target.files ? Array.from(e.target.files) : [];
+              e.target.value = "";
+              if (!picked.length) return;
+              const raw = picked.map((f) => ({ file: f }));
+              const { allowed, skipped } = filterEmployeeUploadItems(raw);
+              const rows = buildUploadRows(allowed, "files", uploadTargetPath);
+              setUploadSession({
+                step: "review",
+                kind: "files",
+                items: allowed,
+                skipped,
+                rows,
+                busy: false,
+              });
+            }}
+          />
+          <input
+            ref={folderInputRef}
+            type="file"
+            multiple
+            className="sr-only"
+            disabled={blockFilePickers}
+            {...({ webkitdirectory: "" } as InputHTMLAttributes<HTMLInputElement>)}
+            onChange={(e) => {
+              const picked = e.target.files ? Array.from(e.target.files) : [];
+              e.target.value = "";
+              if (!picked.length) return;
+              const items = buildFolderUploadItems(picked, uploadTargetPath);
+              const { allowed, skipped } = filterEmployeeUploadItems(items);
+              const rows = buildUploadRows(allowed, "folder", uploadTargetPath);
+              setUploadSession({
+                step: "review",
+                kind: "folder",
+                folderName: folderLabelFromPickedFiles(picked),
+                items: allowed,
+                skipped,
+                rows,
+                busy: false,
+              });
+            }}
+          />
           <div>
-            <label className="mb-1 block text-sm font-medium text-zinc-800">Files</label>
-            <input
-              type="file"
-              multiple
-              disabled={busy}
-              onChange={(e) => {
-                const list = e.target.files;
-                e.target.value = "";
-                if (!list?.length) return;
-                void (async () => {
-                  setBusy(true);
-                  setError("");
-                  setMsg("");
-                  try {
-                    const raw = Array.from(list).map((f) => ({ file: f }));
-                    const { allowed, skipped } = filterEmployeeUploadItems(raw);
-                    if (allowed.length === 0) {
-                      if (skipped.length) setSkippedFilesModal(skipped);
-                      setMsg("No supported files to upload. Check the dialog for skipped names and allowed types.");
-                      if (canView) await load();
-                      await loadBrowse();
-                      return;
-                    }
-                    const { uploaded, failed } = await employeeUploadFilesBatch(
-                      allowed,
-                      uploadTargetPath ? { defaultRelativePath: uploadTargetPath } : {}
-                    );
-                    if (skipped.length) setSkippedFilesModal(skipped);
-                    setMsg(
-                      `Uploaded ${uploaded} file(s).${skipped.length ? ` ${skipped.length} skipped (unsupported or empty).` : ""}${failed.length ? ` ${failed.length} could not be uploaded.` : ""}`
-                    );
-                    if (failed.length) {
-                      setError(failed.slice(0, 6).map((x) => `${x.name}: ${x.message}`).join(" · "));
-                    }
-                    if (canView) await load();
-                    await loadBrowse();
-                  } catch (err) {
-                    setError(err instanceof Error ? err.message : "Upload failed");
-                  } finally {
-                    setBusy(false);
-                  }
-                })();
-              }}
-              className="block w-full text-sm text-zinc-800 file:mr-3 file:rounded-md file:border-0 file:bg-zinc-900 file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-white"
-            />
+            <span className="mb-1 block text-sm font-medium text-zinc-800">Files</span>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                disabled={blockFilePickers}
+                onClick={() => fileInputRef.current?.click()}
+                className="rounded-md bg-zinc-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-50"
+              >
+                Choose files
+              </button>
+              <span className="text-xs text-zinc-500">
+                {uploadSession?.kind === "files" && uploadSession.step === "review"
+                  ? `${uploadSession.items.length} file(s) ready — confirm in the dialog`
+                  : "Pick files, then confirm upload in the dialog"}
+              </span>
+            </div>
           </div>
           <div>
-            <label className="mb-1 block text-sm font-medium text-zinc-800">Folder from your computer</label>
-            <input
-              type="file"
-              disabled={busy}
-              multiple
-              {...({ webkitdirectory: "" } as InputHTMLAttributes<HTMLInputElement>)}
-              onChange={(e) => {
-                void uploadFolderPick(e.target.files);
-                e.target.value = "";
-              }}
-              className="block w-full text-sm text-zinc-800 file:mr-3 file:rounded-md file:border-0 file:bg-zinc-900 file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-white"
-            />
+            <span className="mb-1 block text-sm font-medium text-zinc-800">Folder from your computer</span>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                disabled={blockFilePickers}
+                onClick={() => folderInputRef.current?.click()}
+                className="rounded-md bg-zinc-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-50"
+              >
+                Choose folder
+              </button>
+              <span className="text-xs text-zinc-500">
+                {uploadSession?.kind === "folder" && uploadSession.step === "review"
+                  ? `${uploadSession.items.length} file(s) from “${uploadSession.folderName ?? "folder"}” — confirm in the dialog`
+                  : "Pick a folder (browser may ask to confirm), then confirm upload in the dialog"}
+              </span>
+            </div>
           </div>
         </div>
       </div>
@@ -648,6 +815,24 @@ export function MyFilesClient({
           </>
         ) : null}
       </ConfirmModal>
+
+      {uploadSession ? (
+        <MyFilesUploadModal
+          open
+          step={uploadSession.step}
+          kind={uploadSession.kind}
+          folderName={uploadSession.folderName}
+          targetLocationLabel={uploadTargetPath || todayStoragePath()}
+          skipped={uploadSession.skipped}
+          rows={uploadSession.rows}
+          busy={uploadSession.busy}
+          overallPercent={overallUploadPercent(uploadSession.rows)}
+          summary={uploadSession.summary}
+          pageError={uploadSession.pageError}
+          onClose={closeUploadModal}
+          onStartUpload={() => void runUploadFromModal()}
+        />
+      ) : null}
 
       <NoticeModal
         open={!!skippedFilesModal?.length}
