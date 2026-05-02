@@ -1,13 +1,17 @@
 import { PutObjectCommand } from "@aws-sdk/client-s3";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { getDataClient } from "@/lib/supabase/server";
+import { runPool } from "@/lib/employee-files/concurrency-pool";
 import { buildEmployeeRootPrefix, normalizeRelativePathUnderEmployee } from "@/lib/employee-files/storage";
 import { getWasabiEmployeeFilesBucket, getWasabiEmployeeFilesS3Client } from "@/lib/wasabi/s3-client";
 import { NextResponse } from "next/server";
 
-type Body = { relativePath?: string };
+const PUT_CONCURRENCY = 12;
+const MAX_PATHS = 40;
 
-/** POST — create an empty folder marker under the employee tree (all employees who can upload). */
+type Body = { relativePath?: string; relativePaths?: string[] };
+
+/** POST — create empty folder marker(s) under the employee tree (.keep). Supports batch via `relativePaths`. */
 export async function POST(req: Request) {
   const userClient = await createServerSupabaseClient();
   const {
@@ -24,9 +28,23 @@ export async function POST(req: Request) {
     return NextResponse.json({ message: "Invalid JSON" }, { status: 400 });
   }
 
-  const relativePath = normalizeRelativePathUnderEmployee(String(body.relativePath ?? ""));
-  if (!relativePath) {
-    return NextResponse.json({ message: "relativePath is required (e.g. Apr-2026/28-Apr-2026/MyFolder)" }, { status: 400 });
+  const paths: string[] = [];
+  if (Array.isArray(body.relativePaths) && body.relativePaths.length > 0) {
+    for (const p of body.relativePaths.slice(0, MAX_PATHS)) {
+      const n = normalizeRelativePathUnderEmployee(String(p ?? ""));
+      if (n) paths.push(n);
+    }
+  } else {
+    const one = normalizeRelativePathUnderEmployee(String(body.relativePath ?? ""));
+    if (one) paths.push(one);
+  }
+
+  const unique = [...new Set(paths)];
+  if (unique.length === 0) {
+    return NextResponse.json(
+      { message: "relativePath or relativePaths[] is required (e.g. Apr-2026/28-Apr-2026/MyFolder)" },
+      { status: 400 }
+    );
   }
 
   const supabase = await getDataClient();
@@ -52,19 +70,22 @@ export async function POST(req: Request) {
   }
 
   const root = buildEmployeeRootPrefix(folder.path_segment, me.full_name ?? null, me.id);
-  const markerKey = `${root}${relativePath}/.keep`;
+  const s3 = getWasabiEmployeeFilesS3Client();
+  const bucket = getWasabiEmployeeFilesBucket();
 
   try {
-    const s3 = getWasabiEmployeeFilesS3Client();
-    const bucket = getWasabiEmployeeFilesBucket();
-    await s3.send(
-      new PutObjectCommand({
-        Bucket: bucket,
-        Key: markerKey,
-        Body: "",
-      })
-    );
-    return NextResponse.json({ ok: true, markerKey });
+    await runPool(unique, PUT_CONCURRENCY, async (rel) => {
+      const markerKey = `${root}${rel}/.keep`;
+      await s3.send(
+        new PutObjectCommand({
+          Bucket: bucket,
+          Key: markerKey,
+          Body: "",
+        })
+      );
+      return null;
+    });
+    return NextResponse.json({ ok: true, created: unique.length });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Create folder failed";
     return NextResponse.json({ message: msg }, { status: 500 });

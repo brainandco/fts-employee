@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState, type InputHTMLAttributes } from "react";
+import { useCallback, useEffect, useState, type InputHTMLAttributes } from "react";
+import { employeeUploadFilesBatch } from "@/lib/employee-files/batch-upload-client";
 
 type FileRow = {
   id: string;
@@ -29,6 +30,22 @@ type BrowseFile = {
   } | null;
 };
 
+/** Match server `formatMonthYearFolder` / `formatDayMonthYearFolder` (en-US). */
+function monthYearFolder(d: Date): string {
+  const m = d.toLocaleString("en-US", { month: "short" });
+  return `${m}-${d.getFullYear()}`;
+}
+
+function dayMonthYearFolder(d: Date): string {
+  const m = d.toLocaleString("en-US", { month: "short" });
+  return `${d.getDate()}-${m}-${d.getFullYear()}`;
+}
+
+function todayStoragePath(): string {
+  const d = new Date();
+  return `${monthYearFolder(d)}/${dayMonthYearFolder(d)}`;
+}
+
 function formatBytes(n: number | null): string {
   if (n == null || n < 0) return "—";
   if (n < 1024) return `${n} B`;
@@ -36,30 +53,12 @@ function formatBytes(n: number | null): string {
   return `${(n / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-async function presignUpload(file: File, relativePath?: string) {
-  const pres = await fetch("/api/employee-files/presign", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      fileName: file.name,
-      contentType: file.type || "application/octet-stream",
-      byteSize: file.size,
-      ...(relativePath?.trim() ? { relativePath: relativePath.trim() } : {}),
-    }),
-  });
-  const pr = await pres.json();
-  if (!pres.ok) throw new Error(typeof pr.message === "string" ? pr.message : "Presign failed");
-  const h = (pr as { headers?: { "Content-Type"?: string } }).headers;
-  const put = await fetch((pr as { uploadUrl: string }).uploadUrl, {
-    method: "PUT",
-    body: file,
-    headers: { "Content-Type": h?.["Content-Type"] || file.type || "application/octet-stream" },
-  });
-  if (!put.ok) throw new Error("Upload to storage failed");
-  const comp = await fetch(`/api/employee-files/${(pr as { id: string }).id}/complete`, { method: "POST" });
-  const cj = await comp.json();
-  if (!comp.ok) throw new Error(typeof cj.message === "string" ? cj.message : "Complete failed");
-  return pr as { id: string };
+/** One folder segment under the current path (no slashes). */
+function sanitizeSubfolderName(raw: string): string | null {
+  const t = raw.trim();
+  if (!t || t.includes("/") || t.includes("\\") || t === "." || t === "..") return null;
+  const cleaned = t.replace(/[^\w.\-()+ @&$=!*,?:;]/g, "_").slice(0, 120);
+  return cleaned || null;
 }
 
 export function MyFilesClient({
@@ -81,15 +80,9 @@ export function MyFilesClient({
   const [browsePath, setBrowsePath] = useState("");
   const [browseFolders, setBrowseFolders] = useState<BrowseFolder[]>([]);
   const [browseFiles, setBrowseFiles] = useState<BrowseFile[]>([]);
+  const [newSubfolderName, setNewSubfolderName] = useState("");
 
-  const [uploadRelativePath, setUploadRelativePath] = useState("");
-  const [newFolderPath, setNewFolderPath] = useState("");
-
-  const effectiveUploadPath = useMemo(() => {
-    const manual = uploadRelativePath.trim();
-    if (manual) return manual;
-    return browsePath.trim();
-  }, [uploadRelativePath, browsePath]);
+  const uploadTargetPath = browsePath.trim();
 
   const load = useCallback(async () => {
     setError("");
@@ -124,34 +117,50 @@ export function MyFilesClient({
   useEffect(() => {
     if (hasRegion && hasRegionFolder && canView) {
       setLoading(true);
-      load()
-        .finally(() => setLoading(false));
+      load().finally(() => setLoading(false));
     } else {
       setLoading(false);
     }
   }, [hasRegion, hasRegionFolder, canView, load]);
 
   useEffect(() => {
-    if (hasRegion && hasRegionFolder && canView) {
+    if (hasRegion && hasRegionFolder) {
       void loadBrowse();
     }
-  }, [hasRegion, hasRegionFolder, canView, browsePath, loadBrowse]);
+  }, [hasRegion, hasRegionFolder, browsePath, loadBrowse]);
 
-  async function uploadOne(f: File, relativePath?: string) {
-    if (!f.size) {
-      setError("Empty file");
+  async function refreshAll() {
+    setLoading(true);
+    try {
+      await Promise.all([canView ? load() : Promise.resolve(), loadBrowse()]);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function createSubfolder() {
+    const segment = sanitizeSubfolderName(newSubfolderName);
+    if (!segment) {
+      setError("Enter a single folder name (no slashes), e.g. Reports or Invoices.");
       return;
     }
+    const relativePath = uploadTargetPath ? `${uploadTargetPath}/${segment}` : segment;
     setBusy(true);
     setError("");
     setMsg("");
     try {
-      await presignUpload(f, relativePath);
-      setMsg("File uploaded successfully.");
-      await load();
-      if (canView) await loadBrowse();
+      const res = await fetch("/api/employee-files/folders", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ relativePath }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((data as { message?: string }).message || "Create folder failed");
+      setMsg(`Folder “${segment}” created.`);
+      setNewSubfolderName("");
+      await loadBrowse();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Upload failed");
+      setError(e instanceof Error ? e.message : "Create folder failed");
     } finally {
       setBusy(false);
     }
@@ -163,45 +172,22 @@ export function MyFilesClient({
     setError("");
     setMsg("");
     try {
-      const base = effectiveUploadPath;
-      for (const f of Array.from(list)) {
+      const base = uploadTargetPath;
+      const items = Array.from(list).map((f) => {
         const wr = (f as File & { webkitRelativePath?: string }).webkitRelativePath;
         const sub = wr && wr.includes("/") ? wr.slice(0, wr.lastIndexOf("/")) : "";
         const combined = [base, sub.replace(/\\/g, "/")].filter(Boolean).join("/");
-        await presignUpload(f, combined || undefined);
+        return { file: f, ...(combined ? { relativePath: combined } : {}) };
+      });
+      const { uploaded, failed } = await employeeUploadFilesBatch(items);
+      setMsg(`Uploaded ${uploaded} file(s).${failed.length ? ` ${failed.length} could not be uploaded.` : ""}`);
+      if (failed.length) {
+        setError(failed.slice(0, 6).map((x) => `${x.name}: ${x.message}`).join(" · "));
       }
-      setMsg(`Uploaded ${list.length} file(s).`);
-      await load();
-      if (canView) await loadBrowse();
+      if (canView) await load();
+      await loadBrowse();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Upload failed");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function createFolder() {
-    const rel = newFolderPath.trim();
-    if (!rel) {
-      setError("Enter a folder path.");
-      return;
-    }
-    setBusy(true);
-    setError("");
-    setMsg("");
-    try {
-      const res = await fetch("/api/employee-files/folders", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ relativePath: rel }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error((data as { message?: string }).message || "Create folder failed");
-      setMsg("Folder created.");
-      setNewFolderPath("");
-      if (canView) await loadBrowse();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Create folder failed");
     } finally {
       setBusy(false);
     }
@@ -225,7 +211,7 @@ export function MyFilesClient({
       if (!res.ok) throw new Error((data as { message?: string }).message || "Delete all failed");
       setMsg((data as { removed?: number }).removed ? `Removed ${(data as { removed: number }).removed} file(s).` : "All files removed.");
       await load();
-      if (canView) await loadBrowse();
+      await loadBrowse();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Delete all failed");
     } finally {
@@ -245,7 +231,7 @@ export function MyFilesClient({
       return;
     }
     await load();
-    if (canView) await loadBrowse();
+    await loadBrowse();
   }
 
   async function downloadFile(id: string) {
@@ -282,199 +268,136 @@ export function MyFilesClient({
   return (
     <div className="space-y-4">
       <div className="rounded-2xl border border-zinc-200 bg-zinc-50/80 p-4 text-sm text-zinc-700">
-        <p className="font-medium text-zinc-900">Storage layout</p>
-        <p className="mt-1 text-xs text-zinc-600">
-          Region → your name folder → Month-Year → Day-Month-Year → files. Uploads without a custom path use today&apos;s
-          Month-Year and Day folders automatically.
-        </p>
+        <p className="font-medium text-zinc-900">How this works</p>
+        <ol className="mt-2 list-decimal space-y-1 pl-5 text-xs text-zinc-600">
+          <li>Open folders below (your storage is under Region → your name → dates and any folders you add).</li>
+          <li>
+            <strong>Uploads go into the folder you are viewing.</strong> At root, files go into today&apos;s Month-Year /
+            Day folder automatically.
+          </li>
+          <li>
+            To add a new folder <em>inside the current location</em>, type one name under &quot;New folder&quot; and click
+            Create — that is the only place folders are created.
+          </li>
+        </ol>
       </div>
 
       {!canView ? (
         <div className="rounded-2xl border border-zinc-200 bg-white p-4 text-sm text-zinc-600">
-          Viewing and deleting files is available for Project Managers, PP, and Team Leads. You can still upload, create
-          folders, and upload whole folders from your computer.
+          Download and delete are available for Project Managers, PP, and Team Leads. You can still open folders, upload
+          here, and create subfolders.
         </div>
       ) : null}
 
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-        <div className="min-w-0 flex-1 space-y-3">
+      <div className="rounded-2xl border border-zinc-200 bg-white p-4">
+        <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <label className="mb-1 block text-sm font-medium text-zinc-800">Upload file(s)</label>
-            <input
-              type="file"
-              multiple
-              disabled={busy}
-              onChange={(e) => {
-                const list = e.target.files;
-                e.target.value = "";
-                if (!list?.length) return;
-                void (async () => {
-                  setBusy(true);
-                  setError("");
-                  setMsg("");
-                  try {
-                    const base = effectiveUploadPath;
-                    for (const f of Array.from(list)) {
-                      await presignUpload(f, base || undefined);
-                    }
-                    setMsg(`Uploaded ${list.length} file(s).`);
-                    await load();
-                    if (canView) await loadBrowse();
-                  } catch (err) {
-                    setError(err instanceof Error ? err.message : "Upload failed");
-                  } finally {
-                    setBusy(false);
-                  }
-                })();
-              }}
-              className="block w-full text-sm text-zinc-800 file:mr-3 file:rounded-md file:border-0 file:bg-zinc-900 file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-white"
-            />
-          </div>
-          <div>
-            <label className="mb-1 block text-sm font-medium text-zinc-800">Upload folder (from your computer)</label>
-            <input
-              type="file"
-              disabled={busy}
-              multiple
-              {...({ webkitdirectory: "" } as React.InputHTMLAttributes<HTMLInputElement>)}
-              onChange={(e) => {
-                void uploadFolderPick(e.target.files);
-                e.target.value = "";
-              }}
-              className="block w-full text-sm text-zinc-800 file:mr-3 file:rounded-md file:border-0 file:bg-zinc-900 file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-white"
-            />
+            <h3 className="text-sm font-semibold text-zinc-900">Your folders</h3>
             <p className="mt-1 text-xs text-zinc-500">
-              Relative paths from your folder are preserved under the optional path below. Allowed types include pdf,
-              Office, csv, zip, rar, 7z (server limit applies).
+              Click a folder to open it. Upload buttons below always use this location.
             </p>
           </div>
-          <div>
-            <label className="mb-1 block text-xs font-medium text-zinc-600">
-              Optional path under your storage (e.g. Apr-2026/28-Apr-2026). Leave empty to use today&apos;s folders
-              {canView && browsePath ? ", or rely on browse path below." : "."}
-            </label>
-            <input
-              type="text"
-              value={uploadRelativePath}
-              onChange={(e) => setUploadRelativePath(e.target.value)}
-              placeholder="Apr-2026/28-Apr-2026"
-              disabled={busy}
-              className="w-full max-w-xl rounded-md border border-zinc-300 px-3 py-2 text-sm"
-            />
-          </div>
-        </div>
-        {canView ? (
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap gap-2">
             <button
               type="button"
-              onClick={() => {
-                setLoading(true);
-                Promise.all([load(), loadBrowse()]).finally(() => setLoading(false));
-              }}
-              disabled={busy}
-              className="rounded-md border border-zinc-200 bg-white px-3 py-1.5 text-sm font-medium text-zinc-800 shadow-sm hover:bg-zinc-50"
+              disabled={busy || browseLoading}
+              onClick={() => setBrowsePath(todayStoragePath())}
+              className="rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-xs font-medium text-zinc-800 shadow-sm hover:bg-zinc-50 disabled:opacity-50"
+            >
+              Open today&apos;s folder
+            </button>
+            <button
+              type="button"
+              disabled={busy || browseLoading}
+              onClick={() => void refreshAll()}
+              className="rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-xs font-medium text-zinc-800 shadow-sm hover:bg-zinc-50 disabled:opacity-50"
             >
               Refresh
             </button>
-            <button
-              type="button"
-              onClick={deleteAll}
-              disabled={busy || files.length === 0}
-              className="rounded-md border border-rose-200 bg-rose-50 px-3 py-1.5 text-sm font-medium text-rose-800 shadow-sm hover:bg-rose-100 disabled:opacity-50"
-            >
-              Delete all my files
-            </button>
+            {canView ? (
+              <button
+                type="button"
+                onClick={deleteAll}
+                disabled={busy || files.length === 0}
+                className="rounded-md border border-rose-200 bg-rose-50 px-3 py-1.5 text-xs font-medium text-rose-800 shadow-sm hover:bg-rose-100 disabled:opacity-50"
+              >
+                Delete all my files
+              </button>
+            ) : null}
           </div>
-        ) : null}
-      </div>
+        </div>
 
-      <div className="rounded-2xl border border-zinc-200 bg-white p-4">
-        <h3 className="text-sm font-semibold text-zinc-900">Create folder</h3>
-        <p className="mt-1 text-xs text-zinc-500">
-          Creates an empty folder marker in Wasabi under your employee path (segments under Month-Year / Day if needed).
+        <p className="mt-3 rounded-lg bg-emerald-50/80 px-3 py-2 text-xs font-medium text-emerald-900">
+          {uploadTargetPath ? (
+            <>
+              Current location: <span className="font-mono text-emerald-950">{uploadTargetPath}</span>
+            </>
+          ) : (
+            <>
+              Current location: <strong>Home</strong> (uploads use today&apos;s path:{" "}
+              <span className="font-mono">{todayStoragePath()}</span>)
+            </>
+          )}
         </p>
-        <div className="mt-2 flex flex-wrap items-end gap-2">
-          <input
-            type="text"
-            value={newFolderPath}
-            onChange={(e) => setNewFolderPath(e.target.value)}
-            placeholder="Apr-2026/28-Apr-2026/Reports"
-            disabled={busy}
-            className="min-w-[240px] flex-1 rounded-md border border-zinc-300 px-3 py-2 text-sm"
-          />
+
+        <nav className="mt-2 flex flex-wrap items-center gap-1 text-xs text-zinc-600">
           <button
             type="button"
-            onClick={() => void createFolder()}
-            disabled={busy}
-            className="rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+            className="font-medium text-indigo-600 hover:underline"
+            onClick={() => setBrowsePath("")}
           >
-            Create
+            Home
           </button>
-        </div>
-      </div>
+          {breadcrumbParts.map((part, i) => {
+            const prefix = breadcrumbParts.slice(0, i + 1).join("/");
+            return (
+              <span key={prefix} className="flex items-center gap-1">
+                <span className="text-zinc-400">/</span>
+                <button
+                  type="button"
+                  className="hover:text-indigo-600 hover:underline"
+                  onClick={() => setBrowsePath(prefix)}
+                >
+                  {part}
+                </button>
+              </span>
+            );
+          })}
+        </nav>
 
-      {msg && <p className="text-sm text-emerald-700">{msg}</p>}
-      {error && <p className="text-sm text-red-600">{error}</p>}
-
-      {canView ? (
-        <div className="rounded-2xl border border-zinc-200 bg-white p-4">
-          <h3 className="text-sm font-semibold text-zinc-900">Browse</h3>
-          <nav className="mt-2 flex flex-wrap items-center gap-1 text-xs text-zinc-600">
-            <button
-              type="button"
-              className="font-medium text-indigo-600 hover:underline"
-              onClick={() => setBrowsePath("")}
-            >
-              Root
-            </button>
-            {breadcrumbParts.map((part, i) => {
-              const prefix = breadcrumbParts.slice(0, i + 1).join("/");
-              return (
-                <span key={prefix} className="flex items-center gap-1">
-                  <span className="text-zinc-400">/</span>
-                  <button
-                    type="button"
-                    className="hover:text-indigo-600 hover:underline"
-                    onClick={() => setBrowsePath(prefix)}
-                  >
-                    {part}
-                  </button>
-                </span>
-              );
-            })}
-          </nav>
-          {browseLoading ? (
-            <p className="mt-3 text-sm text-zinc-500">Loading…</p>
-          ) : (
-            <div className="mt-3 overflow-x-auto">
-              <table className="w-full min-w-[480px] text-sm">
-                <thead>
-                  <tr className="border-b border-zinc-200 bg-zinc-50">
-                    <th className="px-3 py-2 text-left font-medium text-zinc-800">Name</th>
-                    <th className="px-3 py-2 text-left font-medium text-zinc-800">Size</th>
-                    <th className="px-3 py-2 text-right font-medium text-zinc-800">Actions</th>
+        {browseLoading ? (
+          <p className="mt-3 text-sm text-zinc-500">Loading…</p>
+        ) : (
+          <div className="mt-3 overflow-x-auto rounded-lg border border-zinc-100">
+            <table className="w-full min-w-[480px] text-sm">
+              <thead>
+                <tr className="border-b border-zinc-200 bg-zinc-50">
+                  <th className="px-3 py-2 text-left font-medium text-zinc-800">Name</th>
+                  <th className="px-3 py-2 text-left font-medium text-zinc-800">Size</th>
+                  {canView ? <th className="px-3 py-2 text-right font-medium text-zinc-800">Actions</th> : null}
+                </tr>
+              </thead>
+              <tbody>
+                {browseFolders.map((f) => (
+                  <tr key={f.path} className="border-b border-zinc-100">
+                    <td className="px-3 py-2">
+                      <button
+                        type="button"
+                        className="font-medium text-indigo-600 hover:underline"
+                        onClick={() => setBrowsePath(f.path)}
+                      >
+                        {f.name}/
+                      </button>
+                    </td>
+                    <td className="px-3 py-2 text-zinc-500">—</td>
+                    {canView ? <td className="px-3 py-2 text-right text-zinc-400">—</td> : null}
                   </tr>
-                </thead>
-                <tbody>
-                  {browseFolders.map((f) => (
-                    <tr key={f.path} className="border-b border-zinc-100">
-                      <td className="px-3 py-2">
-                        <button
-                          type="button"
-                          className="font-medium text-indigo-600 hover:underline"
-                          onClick={() => setBrowsePath(f.path)}
-                        >
-                          {f.name}/
-                        </button>
-                      </td>
-                      <td className="px-3 py-2 text-zinc-500">—</td>
-                      <td className="px-3 py-2 text-right text-zinc-400">—</td>
-                    </tr>
-                  ))}
-                  {browseFiles.map((f) => (
-                    <tr key={f.key} className="border-b border-zinc-100">
-                      <td className="px-3 py-2 font-medium text-zinc-900">{f.name}</td>
-                      <td className="px-3 py-2 text-zinc-600">{formatBytes(f.size)}</td>
+                ))}
+                {browseFiles.map((f) => (
+                  <tr key={f.key} className="border-b border-zinc-100">
+                    <td className="px-3 py-2 font-medium text-zinc-900">{f.name}</td>
+                    <td className="px-3 py-2 text-zinc-600">{formatBytes(f.size)}</td>
+                    {canView ? (
                       <td className="px-3 py-2 text-right">
                         {f.db?.id && f.db.upload_status === "active" ? (
                           <button
@@ -501,70 +424,161 @@ export function MyFilesClient({
                           </>
                         ) : null}
                       </td>
-                    </tr>
-                  ))}
-                  {browseFolders.length === 0 && browseFiles.length === 0 ? (
-                    <tr>
-                      <td colSpan={3} className="px-3 py-6 text-center text-zinc-500">
-                        Nothing in this folder.
-                      </td>
-                    </tr>
-                  ) : null}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
-      ) : null}
+                    ) : null}
+                  </tr>
+                ))}
+                {browseFolders.length === 0 && browseFiles.length === 0 ? (
+                  <tr>
+                    <td colSpan={canView ? 3 : 2} className="px-3 py-6 text-center text-zinc-500">
+                      This folder is empty. Create a subfolder below or upload files.
+                    </td>
+                  </tr>
+                ) : null}
+              </tbody>
+            </table>
+          </div>
+        )}
 
-      {!canView ? null : loading ? (
-        <p className="text-sm text-zinc-500">Loading file list…</p>
-      ) : files.length === 0 ? (
-        <div className="rounded-2xl border border-zinc-200 bg-white p-6 text-sm text-zinc-600">
-          No rows in your personal file list yet (database view). Uploaded files appear here after completion.
+        <div className="mt-4 border-t border-zinc-100 pt-4">
+          <h4 className="text-xs font-semibold uppercase tracking-wide text-zinc-500">New folder (inside current location)</h4>
+          <p className="mt-1 text-xs text-zinc-500">
+            Only this field creates folders. Enter a <strong>single</strong> name (e.g. <code className="rounded bg-zinc-100 px-1">Reports</code>
+            ) — it appears inside the folder you have open above.
+          </p>
+          <div className="mt-2 flex flex-wrap items-end gap-2">
+            <input
+              type="text"
+              value={newSubfolderName}
+              onChange={(e) => setNewSubfolderName(e.target.value)}
+              placeholder="e.g. Reports"
+              disabled={busy}
+              className="min-w-[200px] flex-1 rounded-md border border-zinc-300 px-3 py-2 text-sm"
+            />
+            <button
+              type="button"
+              onClick={() => void createSubfolder()}
+              disabled={busy}
+              className="rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+            >
+              Create folder
+            </button>
+          </div>
         </div>
-      ) : (
-        <div className="overflow-x-auto rounded-2xl border border-zinc-200 bg-white">
-          <table className="w-full min-w-[640px] text-sm">
-            <thead>
-              <tr className="border-b border-zinc-200 bg-zinc-50">
-                <th className="px-4 py-3 text-left font-medium text-zinc-800">Name</th>
-                <th className="px-4 py-3 text-left font-medium text-zinc-800">Size</th>
-                <th className="px-4 py-3 text-left font-medium text-zinc-800">Status</th>
-                <th className="px-4 py-3 text-left font-medium text-zinc-800">Added</th>
-                <th className="px-4 py-3 text-right font-medium text-zinc-800">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {files.map((r) => (
-                <tr key={r.id} className="border-b border-zinc-100 last:border-0">
-                  <td className="px-4 py-2.5 font-medium text-zinc-900">{r.file_name}</td>
-                  <td className="px-4 py-2.5 text-zinc-600">{formatBytes(r.byte_size)}</td>
-                  <td className="px-4 py-2.5 text-zinc-600">
-                    {r.upload_status === "active" ? "Active" : r.upload_status === "pending" ? "Pending" : "Failed"}
-                  </td>
-                  <td className="px-4 py-2.5 text-zinc-600">{new Date(r.created_at).toLocaleString()}</td>
-                  <td className="px-4 py-2.5 text-right">
-                    {r.upload_status === "active" ? (
-                      <button type="button" onClick={() => downloadFile(r.id)} className="text-indigo-600 hover:underline">
-                        Download
-                      </button>
-                    ) : null}{" "}
-                    <button
-                      type="button"
-                      onClick={() => removeRow(r.id)}
-                      disabled={busy}
-                      className="text-rose-600 hover:underline disabled:opacity-50"
-                    >
-                      Delete
-                    </button>
-                  </td>
+      </div>
+
+      <div className="rounded-2xl border border-zinc-200 bg-white p-4">
+        <h3 className="text-sm font-semibold text-zinc-900">Upload into current location</h3>
+        <p className="mt-1 text-xs text-zinc-500">
+          Types: pdf, Office, csv, zip, rar, 7z (server limit applies). Folder upload keeps inner paths under the location
+          shown in green above.
+        </p>
+        <div className="mt-3 space-y-3">
+          <div>
+            <label className="mb-1 block text-sm font-medium text-zinc-800">Files</label>
+            <input
+              type="file"
+              multiple
+              disabled={busy}
+              onChange={(e) => {
+                const list = e.target.files;
+                e.target.value = "";
+                if (!list?.length) return;
+                void (async () => {
+                  setBusy(true);
+                  setError("");
+                  setMsg("");
+                  try {
+                    const { uploaded, failed } = await employeeUploadFilesBatch(
+                      Array.from(list).map((f) => ({ file: f })),
+                      uploadTargetPath ? { defaultRelativePath: uploadTargetPath } : {}
+                    );
+                    setMsg(`Uploaded ${uploaded} file(s).${failed.length ? ` ${failed.length} could not be uploaded.` : ""}`);
+                    if (failed.length) {
+                      setError(failed.slice(0, 6).map((x) => `${x.name}: ${x.message}`).join(" · "));
+                    }
+                    if (canView) await load();
+                    await loadBrowse();
+                  } catch (err) {
+                    setError(err instanceof Error ? err.message : "Upload failed");
+                  } finally {
+                    setBusy(false);
+                  }
+                })();
+              }}
+              className="block w-full text-sm text-zinc-800 file:mr-3 file:rounded-md file:border-0 file:bg-zinc-900 file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-white"
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-sm font-medium text-zinc-800">Folder from your computer</label>
+            <input
+              type="file"
+              disabled={busy}
+              multiple
+              {...({ webkitdirectory: "" } as InputHTMLAttributes<HTMLInputElement>)}
+              onChange={(e) => {
+                void uploadFolderPick(e.target.files);
+                e.target.value = "";
+              }}
+              className="block w-full text-sm text-zinc-800 file:mr-3 file:rounded-md file:border-0 file:bg-zinc-900 file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-white"
+            />
+          </div>
+        </div>
+      </div>
+
+      {msg && <p className="text-sm text-emerald-700">{msg}</p>}
+      {error && <p className="text-sm text-red-600">{error}</p>}
+
+      {canView ? (
+        loading ? (
+          <p className="text-sm text-zinc-500">Loading file list…</p>
+        ) : files.length === 0 ? (
+          <div className="rounded-2xl border border-zinc-200 bg-white p-6 text-sm text-zinc-600">
+            No completed uploads in your account list yet. After uploads finish, they appear here for search and audit.
+          </div>
+        ) : (
+          <div className="overflow-x-auto rounded-2xl border border-zinc-200 bg-white">
+            <p className="border-b border-zinc-100 bg-zinc-50 px-4 py-2 text-xs font-medium text-zinc-600">All your files (list)</p>
+            <table className="w-full min-w-[640px] text-sm">
+              <thead>
+                <tr className="border-b border-zinc-200 bg-zinc-50">
+                  <th className="px-4 py-3 text-left font-medium text-zinc-800">Name</th>
+                  <th className="px-4 py-3 text-left font-medium text-zinc-800">Size</th>
+                  <th className="px-4 py-3 text-left font-medium text-zinc-800">Status</th>
+                  <th className="px-4 py-3 text-left font-medium text-zinc-800">Added</th>
+                  <th className="px-4 py-3 text-right font-medium text-zinc-800">Actions</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+              </thead>
+              <tbody>
+                {files.map((r) => (
+                  <tr key={r.id} className="border-b border-zinc-100 last:border-0">
+                    <td className="px-4 py-2.5 font-medium text-zinc-900">{r.file_name}</td>
+                    <td className="px-4 py-2.5 text-zinc-600">{formatBytes(r.byte_size)}</td>
+                    <td className="px-4 py-2.5 text-zinc-600">
+                      {r.upload_status === "active" ? "Active" : r.upload_status === "pending" ? "Pending" : "Failed"}
+                    </td>
+                    <td className="px-4 py-2.5 text-zinc-600">{new Date(r.created_at).toLocaleString()}</td>
+                    <td className="px-4 py-2.5 text-right">
+                      {r.upload_status === "active" ? (
+                        <button type="button" onClick={() => downloadFile(r.id)} className="text-indigo-600 hover:underline">
+                          Download
+                        </button>
+                      ) : null}{" "}
+                      <button
+                        type="button"
+                        onClick={() => removeRow(r.id)}
+                        disabled={busy}
+                        className="text-rose-600 hover:underline disabled:opacity-50"
+                      >
+                        Delete
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )
+      ) : null}
     </div>
   );
 }

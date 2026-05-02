@@ -1,6 +1,5 @@
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { getDataClient } from "@/lib/supabase/server";
-import { resolveEmployeeFileAccess } from "@/lib/employee-files/access";
 import { browsePrefix } from "@/lib/employee-files/s3-browse";
 import { buildEmployeeRootPrefix, normalizeRelativePathUnderEmployee } from "@/lib/employee-files/storage";
 import { getWasabiEmployeeFilesBucket, getWasabiEmployeeFilesS3Client } from "@/lib/wasabi/s3-client";
@@ -16,7 +15,7 @@ type BrowseFileRow = {
   storage_key: string;
 };
 
-/** GET — list folders and files under the current employee’s storage path (PM / PP / Team Lead only). */
+/** GET — list folders and files under the current employee’s storage path (any active employee with uploads enabled). */
 export async function GET(req: Request) {
   const userClient = await createServerSupabaseClient();
   const {
@@ -28,16 +27,17 @@ export async function GET(req: Request) {
 
   const supabase = await getDataClient();
   const email = (session.user.email ?? "").trim().toLowerCase();
-  const { employee: me, canView } = await resolveEmployeeFileAccess(supabase, email);
-  if (!me) {
+  const { data: me } = await supabase
+    .from("employees")
+    .select("id, status, region_id, full_name")
+    .eq("email", email)
+    .maybeSingle();
+
+  if (!me || me.status !== "ACTIVE") {
     return NextResponse.json({ message: "No active employee profile" }, { status: 403 });
   }
-  if (!canView) {
-    return NextResponse.json({ message: "Browse is available for Project Managers, PP, and Team Lead only." }, { status: 403 });
-  }
 
-  const { data: empRow } = await supabase.from("employees").select("full_name").eq("id", me.id).maybeSingle();
-  const fullName = empRow?.full_name ?? null;
+  const fullName = me.full_name ?? null;
 
   const { data: folder, error: folderErr } = await supabase
     .from("employee_file_region_folders")
@@ -70,12 +70,23 @@ export async function GET(req: Request) {
     return NextResponse.json({ message: msg }, { status: 500 });
   }
 
-  const { data: rows } = await supabase
-    .from("employee_personal_files")
-    .select("id, file_name, mime_type, byte_size, upload_status, created_at, storage_key")
-    .eq("employee_id", me.id);
+  const fileKeys = entries
+    .filter((e): e is Extract<(typeof entries)[number], { type: "file" }> => e.type === "file")
+    .map((e) => e.key);
 
-  const byKey = new Map((rows ?? []).map((r) => [r.storage_key as string, r as BrowseFileRow]));
+  const rows: BrowseFileRow[] = [];
+  const KEY_CHUNK = 80;
+  for (let i = 0; i < fileKeys.length; i += KEY_CHUNK) {
+    const slice = fileKeys.slice(i, i + KEY_CHUNK);
+    const { data: chunk } = await supabase
+      .from("employee_personal_files")
+      .select("id, file_name, mime_type, byte_size, upload_status, created_at, storage_key")
+      .eq("employee_id", me.id)
+      .in("storage_key", slice);
+    rows.push(...((chunk ?? []) as BrowseFileRow[]));
+  }
+
+  const byKey = new Map(rows.map((r) => [r.storage_key as string, r]));
 
   const folders = entries.filter((e) => e.type === "folder").map((e) => ({
     type: "folder" as const,
