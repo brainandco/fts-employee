@@ -1,6 +1,6 @@
 import { DeleteObjectCommand } from "@aws-sdk/client-s3";
 import { requirePostProcessor } from "@/lib/pp/auth";
-import { isKeyUnderPpReportsPrefix } from "@/lib/pp-reports/storage";
+import { isKeyOwnedByReporter } from "@/lib/pp-reports/storage";
 import { getWasabiPpReportsBucket, getWasabiPpReportsS3Client, isPpReportsBucketConfigured } from "@/lib/wasabi/s3-client";
 import { NextResponse } from "next/server";
 
@@ -22,7 +22,7 @@ export async function POST(req: Request) {
   }
 
   const key = String(body.key ?? "").trim();
-  if (!key || key.includes("..") || !isKeyUnderPpReportsPrefix(key)) {
+  if (!key || key.includes("..") || !isKeyOwnedByReporter(key, gate.reporterFolderSlug)) {
     return NextResponse.json({ message: "Invalid key" }, { status: 400 });
   }
 

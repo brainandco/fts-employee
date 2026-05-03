@@ -18,10 +18,12 @@ export function PpWorkspaceClient({
   regions,
   initialFolders,
   ppReportsConfigured,
+  reporterFullName,
 }: {
   regions: Region[];
   initialFolders: Folder[];
   ppReportsConfigured: boolean;
+  reporterFullName?: string | null;
 }) {
   const [tab, setTab] = useState<"field" | "reports">("field");
 
@@ -58,7 +60,7 @@ export function PpWorkspaceClient({
       {tab === "field" ? (
         <PpFieldFilesClient regions={regions} initialFolders={initialFolders} />
       ) : (
-        <PpReportsClient configured={ppReportsConfigured} />
+        <PpReportsClient configured={ppReportsConfigured} reporterFullName={reporterFullName} />
       )}
     </div>
   );

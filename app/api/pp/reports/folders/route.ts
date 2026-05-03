@@ -1,7 +1,7 @@
 import { PutObjectCommand } from "@aws-sdk/client-s3";
 import { normalizeRelativePathUnderEmployee } from "@/lib/employee-files/storage";
 import { requirePostProcessor } from "@/lib/pp/auth";
-import { ppReportsKeyPrefixBase } from "@/lib/pp-reports/storage";
+import { ppReportsKeyPrefixBase, scopeReporterRelativePath } from "@/lib/pp-reports/storage";
 import {
   getWasabiPpReportsBucket,
   getWasabiPpReportsS3Client,
@@ -31,8 +31,13 @@ export async function POST(req: Request) {
     return NextResponse.json({ message: "relativePath is required" }, { status: 400 });
   }
 
+  const scoped = scopeReporterRelativePath(gate.reporterFolderSlug, rel);
+  if (!scoped) {
+    return NextResponse.json({ message: "Invalid path" }, { status: 400 });
+  }
+
   const base = ppReportsKeyPrefixBase();
-  const markerKey = `${base ? `${base}/` : ""}${rel}/.keep`;
+  const markerKey = `${base ? `${base}/` : ""}${scoped}/.keep`;
 
   const s3 = getWasabiPpReportsS3Client();
   const bucket = getWasabiPpReportsBucket()!;

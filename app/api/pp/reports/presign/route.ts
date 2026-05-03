@@ -6,8 +6,9 @@ import {
   getWasabiPpReportsS3Client,
   isPpReportsBucketConfigured,
 } from "@/lib/wasabi/s3-client";
+import { normalizeRelativePathUnderEmployee } from "@/lib/employee-files/storage";
 import { requirePostProcessor } from "@/lib/pp/auth";
-import { buildPpReportObjectKey } from "@/lib/pp-reports/storage";
+import { buildPpReportObjectKey, scopeReporterRelativePath } from "@/lib/pp-reports/storage";
 import { NextResponse } from "next/server";
 
 const PRESIGN_EXPIRES_SEC = 3600;
@@ -47,9 +48,22 @@ export async function POST(req: Request) {
 
   const contentType = String(body.contentType ?? "application/octet-stream").trim() || "application/octet-stream";
 
+  const rawBrowse = body.relativePath;
+  const underReporter: string =
+    rawBrowse != null && String(rawBrowse).trim() !== ""
+      ? normalizeRelativePathUnderEmployee(String(rawBrowse)) ?? ""
+      : "";
+  if (rawBrowse != null && String(rawBrowse).trim() !== "" && !underReporter) {
+    return NextResponse.json({ message: "Invalid relativePath" }, { status: 400 });
+  }
+  const scoped = scopeReporterRelativePath(gate.reporterFolderSlug, underReporter);
+  if (!scoped) {
+    return NextResponse.json({ message: "Invalid path" }, { status: 400 });
+  }
+
   let storageKey: string;
   try {
-    storageKey = buildPpReportObjectKey(body.relativePath ?? null, fileName);
+    storageKey = buildPpReportObjectKey(scoped, fileName);
   } catch (e) {
     return NextResponse.json({ message: e instanceof Error ? e.message : "Invalid upload" }, { status: 400 });
   }

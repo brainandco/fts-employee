@@ -1,7 +1,7 @@
 import { browsePrefix } from "@/lib/employee-files/s3-browse";
 import { normalizeRelativePathUnderEmployee } from "@/lib/employee-files/storage";
 import { requirePostProcessor } from "@/lib/pp/auth";
-import { ppReportsKeyPrefixBase } from "@/lib/pp-reports/storage";
+import { ppReportsListPrefixForReporter } from "@/lib/pp-reports/storage";
 import {
   getWasabiPpReportsBucket,
   getWasabiPpReportsS3Client,
@@ -29,12 +29,10 @@ export async function GET(req: Request) {
     return NextResponse.json({ message: "Invalid path" }, { status: 400 });
   }
 
-  const base = ppReportsKeyPrefixBase();
-  const searchPrefix = normalized
-    ? `${base ? `${base}/` : ""}${normalized}/`
-    : base
-      ? `${base}/`
-      : "";
+  const searchPrefix = ppReportsListPrefixForReporter(gate.reporterFolderSlug, normalized ?? "");
+  if (!searchPrefix) {
+    return NextResponse.json({ message: "Invalid path" }, { status: 400 });
+  }
 
   let s3;
   try {
@@ -75,7 +73,7 @@ export async function GET(req: Request) {
 
   return NextResponse.json({
     path: normalized,
-    basePrefix: base,
+    reporterFolderSlug: gate.reporterFolderSlug,
     listPrefix: searchPrefix,
     folders,
     files,

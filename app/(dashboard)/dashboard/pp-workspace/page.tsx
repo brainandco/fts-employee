@@ -14,7 +14,7 @@ export default async function PpWorkspacePage() {
 
   const email = session.user.email.trim().toLowerCase();
   const dataClient = await getDataClient();
-  const { data: employee } = await dataClient.from("employees").select("id, status").eq("email", email).maybeSingle();
+  const { data: employee } = await dataClient.from("employees").select("id, status, full_name").eq("email", email).maybeSingle();
 
   if (!employee || employee.status !== "ACTIVE") redirect("/dashboard");
 
@@ -51,6 +51,7 @@ export default async function PpWorkspacePage() {
       regions={regions ?? []}
       initialFolders={initialFolders}
       ppReportsConfigured={isPpReportsBucketConfigured()}
+      reporterFullName={(employee.full_name as string | null) ?? null}
     />
   );
 }

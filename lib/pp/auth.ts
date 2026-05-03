@@ -1,3 +1,4 @@
+import { employeeNameFolderSlug } from "@/lib/employee-files/storage";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { getDataClient } from "@/lib/supabase/server";
 import { NextResponse } from "next/server";
@@ -5,6 +6,9 @@ import { NextResponse } from "next/server";
 export type PpSessionContext = {
   employeeId: string;
   email: string;
+  fullName: string | null;
+  /** Stable folder segment under the PP reports bucket for this user (server-derived). */
+  reporterFolderSlug: string;
 };
 
 /** Canonical roles for the reporting workspace (field files + final reports bucket), same nav as legacy PP. */
@@ -26,7 +30,7 @@ export async function getPostProcessorContext(): Promise<PpSessionContext | null
   const supabase = await getDataClient();
   const { data: employee } = await supabase
     .from("employees")
-    .select("id, status")
+    .select("id, status, full_name")
     .eq("email", email)
     .maybeSingle();
 
@@ -35,7 +39,13 @@ export async function getPostProcessorContext(): Promise<PpSessionContext | null
   const { data: roles } = await supabase.from("employee_roles").select("role").eq("employee_id", employee.id);
   if (!hasReportingPortalRole(roles ?? [])) return null;
 
-  return { employeeId: employee.id as string, email };
+  const fullName = (employee.full_name as string | null) ?? null;
+  return {
+    employeeId: employee.id as string,
+    email,
+    fullName,
+    reporterFolderSlug: employeeNameFolderSlug(fullName, employee.id as string),
+  };
 }
 
 export async function requirePostProcessor(): Promise<PpSessionContext | NextResponse> {

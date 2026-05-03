@@ -18,6 +18,8 @@ type Props = {
   kind: "files" | "folder";
   folderName?: string;
   employeeLabel?: string;
+  /** Defaults to "Employee" (field uploads). Use "Reporter" for PP final reports. */
+  actorRoleNoun?: string;
   targetLocationLabel: string;
   skipped: SkippedUpload[];
   rows: UploadModalRow[];
@@ -42,6 +44,7 @@ export function PpFieldUploadModal({
   kind,
   folderName,
   employeeLabel,
+  actorRoleNoun = "Employee",
   targetLocationLabel,
   skipped,
   rows,
@@ -72,7 +75,7 @@ export function PpFieldUploadModal({
           </h2>
           {employeeLabel ? (
             <p className="mt-1 text-xs text-zinc-600">
-              Employee: <strong className="text-zinc-900">{employeeLabel}</strong>
+              {actorRoleNoun}: <strong className="text-zinc-900">{employeeLabel}</strong>
             </p>
           ) : null}
           <p className="mt-1 text-xs text-zinc-600">

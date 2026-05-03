@@ -99,18 +99,7 @@ export default async function DashboardLayout({
     navSections = [
       {
         label: "Files",
-        items: [
-          { href: "/dashboard/pp-workspace", label: "Files workspace" },
-          { href: "/dashboard/my-files", label: "My personal files" },
-        ],
-      },
-      {
-        label: "Reporting",
-        items: [
-          { href: "/dashboard/pp", label: "Teams overview" },
-          { href: "/dashboard/pp/teams", label: "Teams (detail)" },
-          { href: "/dashboard/pp/leaves", label: "Team leave" },
-        ],
+        items: [{ href: "/dashboard/pp-workspace", label: "Files workspace" }],
       },
       {
         label: "Account",
@@ -168,16 +157,6 @@ export default async function DashboardLayout({
           { href: "/dashboard/asset-returns", label: "Asset returns" },
           { href: "/dashboard/qc/request-returns", label: "Request returns" },
           { href: "/dashboard/request-to-pm", label: "Request to PM" },
-        ],
-      });
-    }
-    if (isPp && navSections.length === 0) {
-      navSections.push({
-        label: "Reporting",
-        items: [
-          { href: "/dashboard/pp", label: "Teams overview" },
-          { href: "/dashboard/pp/teams", label: "Teams (detail)" },
-          { href: "/dashboard/pp/leaves", label: "Team leave" },
         ],
       });
     }
