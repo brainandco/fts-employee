@@ -30,7 +30,7 @@ export function PpWorkspaceClient({
       <div>
         <h1 className="text-2xl font-semibold text-zinc-900">Files workspace</h1>
         <p className="mt-1 text-sm text-zinc-600">
-          Browse and manage field uploads across regions, then publish final reports to the PP bucket.
+          Browse and manage field uploads in any region, then publish final reports to the configured reporting bucket.
         </p>
       </div>
 

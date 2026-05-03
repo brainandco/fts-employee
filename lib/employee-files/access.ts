@@ -1,6 +1,6 @@
 import { getDataClient } from "@/lib/supabase/server";
 
-const VIEW_ROLES = new Set(["Project Manager", "PP", "Team Lead"]);
+const VIEW_ROLES = new Set(["Project Manager", "PP", "Reporting Team", "Team Lead"]);
 
 type DataClient = Awaited<ReturnType<typeof getDataClient>>;
 

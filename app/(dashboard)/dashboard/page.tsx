@@ -2,6 +2,7 @@ import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { getDataClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import Link from "next/link";
+import { hasReportingPortalRole } from "@/lib/pp/auth";
 import { AssignedAssetsList } from "@/components/assets/AssignedAssetsList";
 import { ReturnVehicleButton } from "@/components/returns/ReturnVehicleButton";
 import { ReturnSimButton } from "@/components/returns/ReturnSimButton";
@@ -36,13 +37,13 @@ export default async function DashboardPage() {
     .from("employee_roles")
     .select("role")
     .eq("employee_id", employee.id);
-  const isPpOnlyHome = (myRoles ?? []).some((r) => r.role === "PP");
+  const isPpOnlyHome = hasReportingPortalRole(myRoles ?? []);
   if (isPpOnlyHome) {
     redirect("/dashboard/pp-workspace");
   }
   const isQc = (myRoles ?? []).some((r) => r.role === "QC");
   const isPm = (myRoles ?? []).some((r) => r.role === "Project Manager");
-  const isPp = (myRoles ?? []).some((r) => r.role === "PP");
+  const isPp = hasReportingPortalRole(myRoles ?? []);
   const isProjectCoordinator = (myRoles ?? []).some((r) => r.role === "Project Coordinator");
   const isDriverOrSelfDt = (myRoles ?? []).some((r) => r.role === "Driver/Rigger" || r.role === "Self DT");
 
@@ -136,7 +137,7 @@ export default async function DashboardPage() {
               : isQc
                 ? "QC"
                 : isPp
-                  ? "Post Processor"
+                  ? "Reporting"
                   : isProjectCoordinator
                     ? "Project Coordinator"
                     : "Team Member"}
@@ -239,14 +240,14 @@ export default async function DashboardPage() {
 
       {isPp && (
         <section className="rounded-2xl border border-teal-200 bg-gradient-to-r from-teal-50 to-cyan-50 p-5 sm:p-6">
-          <h2 className="text-lg font-semibold text-zinc-900">Post Processor — team lead</h2>
+          <h2 className="text-lg font-semibold text-zinc-900">Reporting — teams</h2>
           <p className="mt-1 text-sm text-zinc-600">
-            Post Processor role only: see teams that match your region and project in Admin (or where you are set Post Processor on the team), plus member
-            tools, SIMs, vehicles, and their leave requests.
+            Open teams for member tools, SIMs, vehicles, and leave requests. Reporting staff normally see every team; you
+            can still be set explicitly as Post Processor on a roster in Admin.
           </p>
           <div className="mt-4 flex flex-wrap gap-3">
             <Link href="/dashboard/pp" className="rounded bg-teal-800 px-4 py-2 text-sm font-medium text-white hover:bg-teal-900">
-              Open PP dashboard
+              Open teams overview
             </Link>
             <Link
               href="/dashboard/pp/leaves"

@@ -2,6 +2,7 @@ import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { getDataClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import Link from "next/link";
+import { hasReportingPortalRole } from "@/lib/pp/auth";
 
 export default async function PostProcessorDashboardPage() {
   const userClient = await createServerSupabaseClient();
@@ -15,8 +16,8 @@ export default async function PostProcessorDashboardPage() {
   const { data: me } = await supabase.from("employees").select("id, full_name").eq("email", email).maybeSingle();
   if (!me) redirect("/login");
 
-  const { data: ppRole } = await supabase.from("employee_roles").select("role").eq("employee_id", me.id).eq("role", "PP").maybeSingle();
-  if (!ppRole) redirect("/dashboard");
+  const { data: portalRoles } = await supabase.from("employee_roles").select("role").eq("employee_id", me.id);
+  if (!hasReportingPortalRole(portalRoles ?? [])) redirect("/dashboard");
 
   const { data: teams } = await supabase
     .from("teams")
@@ -109,14 +110,14 @@ export default async function PostProcessorDashboardPage() {
           Dashboard
         </Link>
         <span aria-hidden>/</span>
-        <span className="text-zinc-900">Post Processor</span>
+        <span className="text-zinc-900">Reporting</span>
       </nav>
 
       <header className="rounded-2xl border border-teal-200 bg-gradient-to-r from-teal-50 to-cyan-50 p-5 sm:p-6">
         <h1 className="text-2xl font-semibold text-zinc-900">Teams you supervise</h1>
         <p className="mt-1 text-sm text-zinc-600">
-          You see teams where you are set as Post Processor on the team, or where your employee region and formal project match the team (same as Admin
-          assignments). Tools follow the DT; Driver/Rigger shows SIMs and vehicles only.
+          Reporting Team (and PP without a home region) can see every team. Legacy PP with a home region and project still
+          matches teams the same way as in Admin. Tools follow the DT; Driver/Rigger shows SIMs and vehicles only.
         </p>
         <div className="mt-4 flex flex-wrap gap-3">
           <Link
@@ -133,8 +134,9 @@ export default async function PostProcessorDashboardPage() {
 
       {list.length === 0 ? (
         <p className="text-sm text-zinc-600">
-          No teams visible yet. Ensure your employee has the same region and formal project as the team in Admin, or ask an administrator to set you as
-          Post Processor on the team.
+          No teams visible yet. Confirm in Admin that teams exist and that your reporting role is set up correctly (Reporting
+          Team sees all teams once the database is updated; legacy PP may need region, project, or an explicit Post Processor
+          slot on the team).
         </p>
       ) : (
         <div className="space-y-6">

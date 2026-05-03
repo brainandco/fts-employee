@@ -41,7 +41,6 @@ export async function GET(req: Request) {
   const { data: employees, error: empErr } = await supabase
     .from("employees")
     .select("id, full_name, email")
-    .eq("region_id", regionId)
     .eq("status", "ACTIVE")
     .order("full_name");
 

@@ -16,7 +16,7 @@ type Folder = {
   regionName: string;
   regionCode: string | null;
 };
-type Assignee = { id: string; fullName: string; email: string | null; folderSlug: string };
+type Assignee = { id: string; fullName: string; email: string | null; folderSlug: string; regionId?: string | null };
 
 type SiteSearchHit = {
   employeeId: string;
@@ -536,7 +536,8 @@ export function PpFieldFilesClient({
         <div className="border-b border-zinc-100 bg-zinc-50/80 px-4 py-3 sm:px-5">
           <h2 className="text-base font-semibold text-zinc-900">Manage employee files</h2>
           <p className="mt-1 text-xs text-zinc-600">
-            Pick a region → browse employees and folders in Wasabi → upload or add folders for someone. Layout matches the
+            Pick a storage region (Wasabi prefix) → browse any active employee in that tree → upload or add folders. All
+            employees are listed; home region (if any) is shown for context. Layout matches the
             portal: Region → employee → Month-Year → day → files.
           </p>
         </div>
@@ -574,10 +575,10 @@ export function PpFieldFilesClient({
           {regionId && selectedFolder ? (
             <div className="rounded-lg border border-indigo-100 bg-indigo-50/40 px-3 py-3 sm:px-4">
               <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-indigo-900/80">
-                Global search (site / folder name in region)
+                Global search (site / folder name under this storage region)
               </label>
               <p className="text-[11px] leading-relaxed text-zinc-600">
-                Searches every active employee in this region for paths like{" "}
+                Searches every active employee (all regions) under this region&apos;s Wasabi prefix for paths like{" "}
                 <span className="font-mono">Month-Year / Day / … / Site ID</span>. The same Site ID can appear on different
                 dates — each match is listed separately with employee and folder path. Results stay here while you open a
                 row in the browser below.
@@ -606,7 +607,7 @@ export function PpFieldFilesClient({
               {siteSearchError ? <p className="mt-2 text-sm text-red-600">{siteSearchError}</p> : null}
               {siteSearchHasRun && !siteSearchLoading && !siteSearchError && siteSearchResults.length === 0 ? (
                 <p className="mt-2 text-sm text-zinc-600">
-                  No matching folder names under any employee in this region. Empty site folders are included in the index;
+                  No matching folder names under any employee for this storage prefix. Empty site folders are included in the index;
                   try the exact Site ID spelling.
                 </p>
               ) : null}
@@ -864,13 +865,17 @@ export function PpFieldFilesClient({
                       }}
                       disabled={uploadBusy || assignees.length === 0 || pickerLocked}
                     >
-                      {assignees.length === 0 ? <option value="">No active employees in this region</option> : null}
-                      {assignees.map((e) => (
+                      {assignees.length === 0 ? <option value="">No active employees</option> : null}
+                      {assignees.map((e) => {
+                        const home = e.regionId ? regions.find((r) => r.id === e.regionId)?.name : null;
+                        return (
                         <option key={e.id} value={e.id}>
                           {e.fullName}
+                          {home ? ` [${home}]` : ""}
                           {e.email ? ` — ${e.email}` : ""}
                         </option>
-                      ))}
+                        );
+                      })}
                     </select>
                   </div>
 

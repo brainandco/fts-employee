@@ -90,9 +90,6 @@ export async function GET(req: Request) {
   if (empErr || !emp || emp.status !== "ACTIVE") {
     return NextResponse.json({ message: "Employee not found or inactive" }, { status: 400 });
   }
-  if (emp.region_id !== regionId) {
-    return NextResponse.json({ message: "Employee is not in the selected region" }, { status: 400 });
-  }
 
   const root = buildEmployeeRootPrefix(regionSeg, emp.full_name ?? null, emp.id);
   const searchPrefix = normalized ? `${root}${normalized}/` : root;

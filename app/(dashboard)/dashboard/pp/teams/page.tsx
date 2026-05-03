@@ -3,6 +3,7 @@ import { getDataClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import { PpTeamMemberTabs, type PpTeamMemberTab } from "@/components/pp/PpTeamMemberTabs";
+import { hasReportingPortalRole } from "@/lib/pp/auth";
 
 type AssetRow = {
   id: string;
@@ -26,8 +27,7 @@ export default async function PpTeamsPage() {
   if (!employee) redirect("/login");
 
   const { data: roles } = await supabase.from("employee_roles").select("role").eq("employee_id", employee.id);
-  const isPp = (roles ?? []).some((r) => r.role === "PP");
-  if (!isPp) redirect("/dashboard");
+  if (!hasReportingPortalRole(roles ?? [])) redirect("/dashboard");
 
   const { data: teams } = await supabase
     .from("teams")
@@ -122,7 +122,7 @@ export default async function PpTeamsPage() {
           Dashboard
         </Link>
         <span aria-hidden>/</span>
-        <span className="text-zinc-900">My teams (PP)</span>
+        <span className="text-zinc-900">My teams (reporting)</span>
       </nav>
 
       <section className="rounded-2xl border border-teal-200/80 bg-gradient-to-r from-teal-50 via-emerald-50 to-slate-50 p-5 sm:p-7">
@@ -139,8 +139,8 @@ export default async function PpTeamsPage() {
 
       {teamList.length === 0 ? (
         <p className="rounded-xl border border-zinc-200 bg-white p-6 text-sm text-zinc-600">
-          No teams visible yet. Align your employee region and formal project with the team in Admin, or ask an admin to set you as Post Processor on the
-          team.
+          No teams visible yet. Ask an admin to confirm team rosters and your reporting access. If you have a home region
+          and project on your employee record, teams that match those values will also appear once set in Admin.
         </p>
       ) : (
         <ul className="space-y-6">

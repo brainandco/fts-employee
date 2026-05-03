@@ -3,6 +3,7 @@ import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { getDataClient } from "@/lib/supabase/server";
 import { EmployeePortalChrome } from "@/components/layout/EmployeePortalChrome";
 import type { EmployeeNavSection } from "@/components/layout/EmployeeSidebar";
+import { hasReportingPortalRole } from "@/lib/pp/auth";
 
 export default async function DashboardLayout({
   children,
@@ -52,7 +53,7 @@ export default async function DashboardLayout({
     const roleSet = new Set((roles ?? []).map((r) => r.role));
     isPm = roleSet.has("Project Manager");
     isQc = roleSet.has("QC");
-    isPp = roleSet.has("PP");
+    isPp = hasReportingPortalRole(roles ?? []);
     isProjectCoordinator = roleSet.has("Project Coordinator");
     showTransferRequestsNav =
       isPm ||
@@ -71,7 +72,7 @@ export default async function DashboardLayout({
       : isQc
         ? "QC"
         : isPp
-          ? "Post Processor"
+          ? "Reporting"
           : isProjectCoordinator
             ? "PC"
             : "Team";
@@ -104,7 +105,7 @@ export default async function DashboardLayout({
         ],
       },
       {
-        label: "Post Processor",
+        label: "Reporting",
         items: [
           { href: "/dashboard/pp", label: "Teams overview" },
           { href: "/dashboard/pp/teams", label: "Teams (detail)" },
@@ -172,7 +173,7 @@ export default async function DashboardLayout({
     }
     if (isPp && navSections.length === 0) {
       navSections.push({
-        label: "Post Processor",
+        label: "Reporting",
         items: [
           { href: "/dashboard/pp", label: "Teams overview" },
           { href: "/dashboard/pp/teams", label: "Teams (detail)" },

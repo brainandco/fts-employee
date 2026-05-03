@@ -7,7 +7,14 @@ export type PpSessionContext = {
   email: string;
 };
 
-/** Resolve PP role from session. Returns null if not authenticated or not PP. */
+/** Canonical roles for the reporting workspace (field files + final reports bucket), same nav as legacy PP. */
+export const REPORTING_PORTAL_ROLES = ["PP", "Reporting Team"] as const;
+
+export function hasReportingPortalRole(roles: { role: string }[] | null | undefined): boolean {
+  return (roles ?? []).some((r) => r.role === "PP" || r.role === "Reporting Team");
+}
+
+/** Resolve reporting workspace (PP or Reporting Team) from session. */
 export async function getPostProcessorContext(): Promise<PpSessionContext | null> {
   const userClient = await createServerSupabaseClient();
   const {
@@ -26,8 +33,7 @@ export async function getPostProcessorContext(): Promise<PpSessionContext | null
   if (!employee || employee.status !== "ACTIVE") return null;
 
   const { data: roles } = await supabase.from("employee_roles").select("role").eq("employee_id", employee.id);
-  const isPp = (roles ?? []).some((r) => r.role === "PP");
-  if (!isPp) return null;
+  if (!hasReportingPortalRole(roles ?? [])) return null;
 
   return { employeeId: employee.id as string, email };
 }
@@ -35,7 +41,7 @@ export async function getPostProcessorContext(): Promise<PpSessionContext | null
 export async function requirePostProcessor(): Promise<PpSessionContext | NextResponse> {
   const ctx = await getPostProcessorContext();
   if (!ctx) {
-    return NextResponse.json({ message: "Forbidden — Post Processor access only." }, { status: 403 });
+    return NextResponse.json({ message: "Forbidden — reporting workspace access only." }, { status: 403 });
   }
   return ctx;
 }

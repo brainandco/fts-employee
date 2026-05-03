@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { getDataClient } from "@/lib/supabase/server";
 import { PpWorkspaceClient } from "@/components/pp/PpWorkspaceClient";
+import { hasReportingPortalRole } from "@/lib/pp/auth";
 import { isPpReportsBucketConfigured } from "@/lib/wasabi/s3-client";
 
 export default async function PpWorkspacePage() {
@@ -18,8 +19,7 @@ export default async function PpWorkspacePage() {
   if (!employee || employee.status !== "ACTIVE") redirect("/dashboard");
 
   const { data: roles } = await dataClient.from("employee_roles").select("role").eq("employee_id", employee.id);
-  const isPp = (roles ?? []).some((r) => r.role === "PP");
-  if (!isPp) redirect("/dashboard");
+  if (!hasReportingPortalRole(roles ?? [])) redirect("/dashboard");
 
   const { data: regions } = await dataClient.from("regions").select("id, name, code").order("name");
   const { data: folderRows } = await dataClient
