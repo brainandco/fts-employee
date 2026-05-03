@@ -2,7 +2,7 @@ import { GetObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { requirePostProcessor } from "@/lib/pp/auth";
 import { isKeyUnderPpReportsPrefix } from "@/lib/pp-reports/storage";
-import { getWasabiEmployeeFilesS3Client, getWasabiPpReportsBucket, isPpReportsBucketConfigured } from "@/lib/wasabi/s3-client";
+import { getWasabiPpReportsBucket, getWasabiPpReportsS3Client, isPpReportsBucketConfigured } from "@/lib/wasabi/s3-client";
 import { NextResponse } from "next/server";
 
 const EXPIRES = 300;
@@ -21,7 +21,7 @@ export async function GET(req: Request) {
   }
 
   const fileName = key.includes("/") ? key.slice(key.lastIndexOf("/") + 1) : key;
-  const s3 = getWasabiEmployeeFilesS3Client();
+  const s3 = getWasabiPpReportsS3Client();
   const bucket = getWasabiPpReportsBucket()!;
   const cmd = new GetObjectCommand({
     Bucket: bucket,

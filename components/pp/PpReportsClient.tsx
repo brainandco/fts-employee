@@ -159,7 +159,8 @@ export function PpReportsClient({ configured }: { configured: boolean }) {
     return (
       <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
         Final reports storage is not configured. Set <span className="font-mono">WASABI_PP_REPORTS_BUCKET</span> on the
-        server (same Wasabi user as employee files is OK).
+        server. Optional: <span className="font-mono">WASABI_PP_REPORTS_ACCESS_KEY</span> (+ secret, region, endpoint) for a
+        dedicated PP user; otherwise employee-files credentials are used.
       </div>
     );
   }

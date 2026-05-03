@@ -1,7 +1,7 @@
 import { DeleteObjectCommand } from "@aws-sdk/client-s3";
 import { requirePostProcessor } from "@/lib/pp/auth";
 import { isKeyUnderPpReportsPrefix } from "@/lib/pp-reports/storage";
-import { getWasabiEmployeeFilesS3Client, getWasabiPpReportsBucket, isPpReportsBucketConfigured } from "@/lib/wasabi/s3-client";
+import { getWasabiPpReportsBucket, getWasabiPpReportsS3Client, isPpReportsBucketConfigured } from "@/lib/wasabi/s3-client";
 import { NextResponse } from "next/server";
 
 type Body = { key?: string };
@@ -26,7 +26,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ message: "Invalid key" }, { status: 400 });
   }
 
-  const s3 = getWasabiEmployeeFilesS3Client();
+  const s3 = getWasabiPpReportsS3Client();
   const bucket = getWasabiPpReportsBucket()!;
   try {
     await s3.send(new DeleteObjectCommand({ Bucket: bucket, Key: key }));

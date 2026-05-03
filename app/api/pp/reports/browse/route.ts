@@ -3,8 +3,8 @@ import { normalizeRelativePathUnderEmployee } from "@/lib/employee-files/storage
 import { requirePostProcessor } from "@/lib/pp/auth";
 import { ppReportsKeyPrefixBase } from "@/lib/pp-reports/storage";
 import {
-  getWasabiEmployeeFilesS3Client,
   getWasabiPpReportsBucket,
+  getWasabiPpReportsS3Client,
   isPpReportsBucketConfigured,
 } from "@/lib/wasabi/s3-client";
 import { NextResponse } from "next/server";
@@ -36,7 +36,7 @@ export async function GET(req: Request) {
       ? `${base}/`
       : "";
 
-  const s3 = getWasabiEmployeeFilesS3Client();
+  const s3 = getWasabiPpReportsS3Client();
   const bucket = getWasabiPpReportsBucket()!;
 
   let entries;
