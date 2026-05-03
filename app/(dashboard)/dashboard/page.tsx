@@ -1,5 +1,6 @@
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { getDataClient } from "@/lib/supabase/server";
+import { redirect } from "next/navigation";
 import Link from "next/link";
 import { AssignedAssetsList } from "@/components/assets/AssignedAssetsList";
 import { ReturnVehicleButton } from "@/components/returns/ReturnVehicleButton";
@@ -35,6 +36,10 @@ export default async function DashboardPage() {
     .from("employee_roles")
     .select("role")
     .eq("employee_id", employee.id);
+  const isPpOnlyHome = (myRoles ?? []).some((r) => r.role === "PP");
+  if (isPpOnlyHome) {
+    redirect("/dashboard/pp-workspace");
+  }
   const isQc = (myRoles ?? []).some((r) => r.role === "QC");
   const isPm = (myRoles ?? []).some((r) => r.role === "Project Manager");
   const isPp = (myRoles ?? []).some((r) => r.role === "PP");

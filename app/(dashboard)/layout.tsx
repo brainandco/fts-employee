@@ -94,7 +94,32 @@ export default async function DashboardLayout({
   }
 
   let navSections: EmployeeNavSection[] = [];
-  if (isAdminView) {
+  if (!isAdminView && employee && isPp) {
+    navSections = [
+      {
+        label: "Files",
+        items: [
+          { href: "/dashboard/pp-workspace", label: "Files workspace" },
+          { href: "/dashboard/my-files", label: "My personal files" },
+        ],
+      },
+      {
+        label: "Post Processor",
+        items: [
+          { href: "/dashboard/pp", label: "Teams overview" },
+          { href: "/dashboard/pp/teams", label: "Teams (detail)" },
+          { href: "/dashboard/pp/leaves", label: "Team leave" },
+        ],
+      },
+      {
+        label: "Account",
+        items: [
+          { href: "/leave", label: "Leave" },
+          { href: "/settings/profile", label: "Profile settings" },
+        ],
+      },
+    ];
+  } else if (isAdminView) {
     navSections = [
       {
         label: "Admin",
@@ -145,7 +170,7 @@ export default async function DashboardLayout({
         ],
       });
     }
-    if (isPp) {
+    if (isPp && navSections.length === 0) {
       navSections.push({
         label: "Post Processor",
         items: [

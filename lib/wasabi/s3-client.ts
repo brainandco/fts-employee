@@ -60,3 +60,20 @@ export function getWasabiEmployeeFileMaxBytes(): number {
   if (raw && /^\d+$/.test(raw.trim())) return parseInt(raw.trim(), 10);
   return 100 * 1024 * 1024;
 }
+
+/** Separate bucket for PP final reports (same IAM user as employee files recommended). */
+export function getWasabiPpReportsBucket(): string | null {
+  const b = process.env.WASABI_PP_REPORTS_BUCKET?.trim();
+  return b || null;
+}
+
+export function isPpReportsBucketConfigured(): boolean {
+  return getWasabiPpReportsBucket() != null;
+}
+
+/** Top-level prefix inside the PP reports bucket (default: none = projects at bucket root). */
+export function getWasabiPpReportsKeyPrefix(): string {
+  const p = process.env.WASABI_PP_REPORTS_PREFIX?.trim();
+  if (!p) return "";
+  return p.replace(/^\/+|\/+$/g, "");
+}

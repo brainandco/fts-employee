@@ -1,0 +1,41 @@
+import { createServerSupabaseClient } from "@/lib/supabase/server";
+import { getDataClient } from "@/lib/supabase/server";
+import { NextResponse } from "next/server";
+
+export type PpSessionContext = {
+  employeeId: string;
+  email: string;
+};
+
+/** Resolve PP role from session. Returns null if not authenticated or not PP. */
+export async function getPostProcessorContext(): Promise<PpSessionContext | null> {
+  const userClient = await createServerSupabaseClient();
+  const {
+    data: { session },
+  } = await userClient.auth.getSession();
+  if (!session?.user?.email) return null;
+
+  const email = session.user.email.trim().toLowerCase();
+  const supabase = await getDataClient();
+  const { data: employee } = await supabase
+    .from("employees")
+    .select("id, status")
+    .eq("email", email)
+    .maybeSingle();
+
+  if (!employee || employee.status !== "ACTIVE") return null;
+
+  const { data: roles } = await supabase.from("employee_roles").select("role").eq("employee_id", employee.id);
+  const isPp = (roles ?? []).some((r) => r.role === "PP");
+  if (!isPp) return null;
+
+  return { employeeId: employee.id as string, email };
+}
+
+export async function requirePostProcessor(): Promise<PpSessionContext | NextResponse> {
+  const ctx = await getPostProcessorContext();
+  if (!ctx) {
+    return NextResponse.json({ message: "Forbidden — Post Processor access only." }, { status: 403 });
+  }
+  return ctx;
+}

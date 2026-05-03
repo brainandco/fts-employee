@@ -82,6 +82,11 @@ export function normalizeRelativePathUnderEmployee(input: string | null | undefi
   return out.join("/");
 }
 
+export function buildRegionFilesPrefix(regionSegment: string): string {
+  const keyPrefix = getWasabiEmployeeFilesKeyPrefix();
+  return `${keyPrefix}/${regionSegment}/`;
+}
+
 export function buildEmployeeRootPrefix(regionSegment: string, fullName: string | null, employeeId: string): string {
   const keyPrefix = getWasabiEmployeeFilesKeyPrefix();
   const emp = employeeNameFolderSlug(fullName, employeeId);

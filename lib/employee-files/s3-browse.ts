@@ -6,9 +6,86 @@ export type BrowseEntry =
 
 const LIST_PAGE_MAX_KEYS = 1000;
 
+/** Flat list of object keys under prefix (no delimiter), paginated. */
+export async function listAllObjectKeysUnderPrefix(
+  s3: S3Client,
+  bucket: string,
+  prefix: string,
+  maxKeys: number
+): Promise<{ keys: string[]; truncated: boolean }> {
+  const p = prefix.replace(/\/*$/, "/");
+  const keys: string[] = [];
+  let continuationToken: string | undefined;
+  do {
+    const list = await s3.send(
+      new ListObjectsV2Command({
+        Bucket: bucket,
+        Prefix: p,
+        MaxKeys: LIST_PAGE_MAX_KEYS,
+        ContinuationToken: continuationToken,
+      })
+    );
+    for (const obj of list.Contents ?? []) {
+      const key = obj.Key;
+      if (!key || key.endsWith("/.keep")) continue;
+      keys.push(key);
+      if (keys.length >= maxKeys) {
+        return { keys, truncated: true };
+      }
+    }
+    continuationToken = list.IsTruncated ? list.NextContinuationToken : undefined;
+  } while (continuationToken);
+  return { keys, truncated: false };
+}
+
+export async function listRelativeFolderPathsBfs(
+  s3: S3Client,
+  bucket: string,
+  absRootPrefix: string,
+  maxFolders: number
+): Promise<{ relativePaths: string[]; truncated: boolean }> {
+  const root = absRootPrefix.replace(/\/*$/, "/");
+  const seen = new Set<string>();
+  const relativePaths: string[] = [];
+  const queue: string[] = [root];
+  let truncated = false;
+
+  outer: while (queue.length > 0 && relativePaths.length < maxFolders) {
+    const prefix = queue.shift()!;
+    let continuationToken: string | undefined;
+    do {
+      const list = await s3.send(
+        new ListObjectsV2Command({
+          Bucket: bucket,
+          Prefix: prefix,
+          Delimiter: "/",
+          MaxKeys: LIST_PAGE_MAX_KEYS,
+          ContinuationToken: continuationToken,
+        })
+      );
+      for (const cp of list.CommonPrefixes ?? []) {
+        const full = cp.Prefix ?? "";
+        if (!full.startsWith(root)) continue;
+        const rel = full.slice(root.length).replace(/\/+$/, "");
+        if (!rel || seen.has(rel)) continue;
+        seen.add(rel);
+        relativePaths.push(rel);
+        if (relativePaths.length >= maxFolders) {
+          truncated = true;
+          break outer;
+        }
+        queue.push(full);
+      }
+      continuationToken = list.IsTruncated ? list.NextContinuationToken : undefined;
+    } while (continuationToken);
+  }
+
+  return { relativePaths, truncated };
+}
+
 /** List immediate children under prefix (trailing slash normalized). Single S3 list call (one “directory” level). */
 export async function browsePrefix(s3: S3Client, bucket: string, prefix: string): Promise<BrowseEntry[]> {
-  const p = prefix.replace(/\/*$/, "/");
+  const p = prefix === "" ? "" : prefix.replace(/\/*$/, "/");
   const out: BrowseEntry[] = [];
   const list = await s3.send(
     new ListObjectsV2Command({
