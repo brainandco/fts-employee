@@ -37,8 +37,11 @@ export function PpReportsClient({ configured }: { configured: boolean }) {
     try {
       const q = browsePath ? `?path=${encodeURIComponent(browsePath)}` : "";
       const res = await fetch(`/api/pp/reports/browse${q}`);
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error((data as { message?: string }).message || "Browse failed");
+      const data = (await res.json().catch(() => ({}))) as { message?: string };
+      if (!res.ok) {
+        const msg = typeof data.message === "string" && data.message.trim() ? data.message.trim() : "";
+        throw new Error(msg || `Browse failed (HTTP ${res.status}). Check Vercel env: WASABI_PP_REPORTS_BUCKET and Wasabi credentials for this app.`);
+      }
       setFolders((data as { folders?: BrowseFolder[] }).folders ?? []);
       setFiles((data as { files?: BrowseFile[] }).files ?? []);
     } catch (e) {

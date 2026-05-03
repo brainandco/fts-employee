@@ -36,18 +36,27 @@ export async function GET(req: Request) {
       ? `${base}/`
       : "";
 
-  const s3 = getWasabiPpReportsS3Client();
+  let s3;
+  try {
+    s3 = getWasabiPpReportsS3Client();
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "Wasabi configuration error";
+    return NextResponse.json({ message: msg }, { status: 500 });
+  }
+
   const bucket = getWasabiPpReportsBucket()!;
 
   let entries;
   try {
     entries = await browsePrefix(s3, bucket, searchPrefix);
   } catch (e) {
-    const msg = e instanceof Error ? e.message : "List failed";
-    return NextResponse.json({ message: msg }, { status: 500 });
+    const raw = e instanceof Error ? e.message : "List failed";
+    const hint =
+      /AccessDenied|403|not authorized|signature/i.test(raw)
+        ? " Check that this Wasabi user may ListBucket/GetObject on WASABI_PP_REPORTS_BUCKET (and prefix if used)."
+        : "";
+    return NextResponse.json({ message: `${raw}${hint}` }, { status: 500 });
   }
-
-  const prefixLen = searchPrefix.length;
   const folders = entries.filter((e) => e.type === "folder").map((e) => ({
     type: "folder" as const,
     name: e.name,
