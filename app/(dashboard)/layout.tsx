@@ -1,9 +1,13 @@
+import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { getDataClient } from "@/lib/supabase/server";
+import { CHANGE_PASSWORD_PATH, isPasswordChangeExemptPath } from "@/lib/auth/password-change-gate";
 import { EmployeePortalChrome } from "@/components/layout/EmployeePortalChrome";
 import type { EmployeeNavSection } from "@/components/layout/EmployeeSidebar";
 import { hasReportingPortalRole } from "@/lib/pp/auth";
+
+const SUPER_ROLE_ID = "a0000000-0000-0000-0000-000000000000";
 
 export default async function DashboardLayout({
   children,
@@ -21,12 +25,12 @@ export default async function DashboardLayout({
   const client = admin ?? supabase;
   const { data: employee } = await client
     .from("employees")
-    .select("id, full_name, status, region_id, avatar_url")
+    .select("id, full_name, status, region_id, avatar_url, must_change_password")
     .eq("email", email)
     .maybeSingle();
   const { data: userProfile } = await client
     .from("users_profile")
-    .select("id, full_name, status, avatar_url")
+    .select("id, full_name, status, avatar_url, must_change_password, is_super_user")
     .eq("email", email)
     .maybeSingle();
 
@@ -43,6 +47,25 @@ export default async function DashboardLayout({
   }
 
   const dataClient = await getDataClient();
+  const pathname = (await headers()).get("x-pathname") ?? "";
+  if (pathname && !isPasswordChangeExemptPath(pathname)) {
+    const uid = session.user.id;
+    const { data: superRoleRow } = await dataClient
+      .from("user_roles")
+      .select("role_id")
+      .eq("user_id", uid)
+      .eq("role_id", SUPER_ROLE_ID)
+      .maybeSingle();
+    const isSuperPortal = !!userProfile?.is_super_user || !!superRoleRow;
+    if (!isSuperPortal) {
+      const needFromProfile = userProfile?.must_change_password === true;
+      const needFromEmployee = employee?.must_change_password === true;
+      if (needFromProfile || needFromEmployee) {
+        redirect(CHANGE_PASSWORD_PATH);
+      }
+    }
+  }
+
   let isPm = false;
   let isQc = false;
   let isPp = false;
@@ -145,6 +168,7 @@ export default async function DashboardLayout({
           { href: "/dashboard/vehicles/assign", label: "Assign vehicles" },
           { href: "/dashboard/assets/request", label: "Request asset" },
           { href: "/dashboard/requests-from-qc", label: "QC requests" },
+          { href: "/dashboard/pm-files", label: "Employee files & PP reports" },
         ],
       });
     }

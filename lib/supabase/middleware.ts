@@ -4,7 +4,11 @@ import { mergeCookieOptions } from "@/lib/supabase/cookie-options";
 import { getSupabaseUrlAndAnonKey } from "@/lib/supabase/public-env";
 
 export async function updateSession(request: NextRequest) {
-  const response = NextResponse.next({ request });
+  const requestHeaders = new Headers(request.headers);
+  requestHeaders.set("x-pathname", request.nextUrl.pathname);
+  const response = NextResponse.next({
+    request: { headers: requestHeaders },
+  });
   const env = getSupabaseUrlAndAnonKey();
   if (!env) {
     console.error(

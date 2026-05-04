@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { createServerSupabaseAdmin } from "@/lib/supabase/admin";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 
 export async function POST(request: NextRequest) {
@@ -39,6 +40,19 @@ export async function POST(request: NextRequest) {
   const { error: updErr } = await supabase.auth.updateUser({ password: new_password });
   if (updErr) {
     return NextResponse.json({ error: updErr.message }, { status: 400 });
+  }
+
+  try {
+    if (process.env.SUPABASE_SERVICE_ROLE_KEY) {
+      const admin = createServerSupabaseAdmin();
+      await admin.from("users_profile").update({ must_change_password: false }).eq("id", session.user.id);
+      const em = session.user.email?.trim().toLowerCase();
+      if (em) {
+        await admin.from("employees").update({ must_change_password: false }).eq("email", em);
+      }
+    }
+  } catch {
+    /* non-fatal */
   }
 
   return NextResponse.json({ ok: true });
