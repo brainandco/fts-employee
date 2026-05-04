@@ -1,5 +1,8 @@
 import { S3Client } from "@aws-sdk/client-s3";
 
+let cachedEmployeeFilesS3: S3Client | null = null;
+let cachedPpReportsDedicatedS3: S3Client | null = null;
+
 export function getWasabiS3Client(): S3Client {
   const accessKeyId = process.env.WASABI_ACCESS_KEY;
   const secretAccessKey = process.env.WASABI_SECRET_ACCESS_KEY;
@@ -30,8 +33,9 @@ export function getWasabiEmployeeFilesBucket(): string {
   return b;
 }
 
-/** Dedicated Wasabi user + bucket for employee file uploads (not the main software-library credentials). */
+/** Reuses one client per isolate — faster repeated browse / upload calls. */
 export function getWasabiEmployeeFilesS3Client(): S3Client {
+  if (cachedEmployeeFilesS3) return cachedEmployeeFilesS3;
   const accessKeyId = process.env.WASABI_EMPLOYEE_FILES_ACCESS_KEY;
   const secretAccessKey = process.env.WASABI_EMPLOYEE_FILES_SECRET_ACCESS_KEY;
   const region = process.env.WASABI_EMPLOYEE_FILES_REGION;
@@ -41,12 +45,13 @@ export function getWasabiEmployeeFilesS3Client(): S3Client {
       "Employee file storage: set WASABI_EMPLOYEE_FILES_ACCESS_KEY, WASABI_EMPLOYEE_FILES_SECRET_ACCESS_KEY, WASABI_EMPLOYEE_FILES_REGION, and WASABI_EMPLOYEE_FILES_ENDPOINT."
     );
   }
-  return new S3Client({
+  cachedEmployeeFilesS3 = new S3Client({
     region,
     endpoint,
     credentials: { accessKeyId, secretAccessKey },
     forcePathStyle: true,
   });
+  return cachedEmployeeFilesS3;
 }
 
 export function getWasabiEmployeeFilesKeyPrefix(): string {
@@ -109,12 +114,15 @@ export function getWasabiPpReportsS3Client(): S3Client {
     );
   }
   if (accessKeyId && secretAccessKey && region && endpoint) {
-    return new S3Client({
-      region,
-      endpoint,
-      credentials: { accessKeyId, secretAccessKey },
-      forcePathStyle: true,
-    });
+    if (!cachedPpReportsDedicatedS3) {
+      cachedPpReportsDedicatedS3 = new S3Client({
+        region,
+        endpoint,
+        credentials: { accessKeyId, secretAccessKey },
+        forcePathStyle: true,
+      });
+    }
+    return cachedPpReportsDedicatedS3;
   }
   return getWasabiEmployeeFilesS3Client();
 }

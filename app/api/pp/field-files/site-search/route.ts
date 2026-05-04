@@ -1,3 +1,4 @@
+import type { S3Client } from "@aws-sdk/client-s3";
 import { getDataClient } from "@/lib/supabase/server";
 import { buildEmployeeRootPrefix } from "@/lib/employee-files/storage";
 import { listAllObjectKeysUnderPrefix, listRelativeFolderPathsBfs } from "@/lib/employee-files/s3-browse";
@@ -9,6 +10,66 @@ import { NextResponse } from "next/server";
 const MAX_KEYS_PER_EMPLOYEE = 12_000;
 const MAX_FOLDERS_BFS_PER_EMPLOYEE = 8_000;
 const MAX_RESULTS = 250;
+const EMPLOYEE_SITE_SEARCH_CONCURRENCY = 6;
+
+type SiteSearchHit = {
+  employeeId: string;
+  employeeName: string;
+  employeeEmail: string | null;
+  siteFolderName: string;
+  pathUnderEmployee: string;
+  parentPathBeforeSite: string;
+  fileCountInSubtree: number;
+};
+
+async function siteSearchHitsForEmployee(
+  emp: { id: string; full_name: string | null; email: string | null },
+  regionSeg: string,
+  s3: S3Client,
+  bucket: string,
+  q: string
+): Promise<{ hits: SiteSearchHit[]; truncated: boolean }> {
+  const root = buildEmployeeRootPrefix(regionSeg, emp.full_name ?? null, emp.id);
+  const [listRes, bfsRes] = await Promise.all([
+    listAllObjectKeysUnderPrefix(s3, bucket, root, MAX_KEYS_PER_EMPLOYEE),
+    listRelativeFolderPathsBfs(s3, bucket, root, MAX_FOLDERS_BFS_PER_EMPLOYEE),
+  ]);
+  const truncated = listRes.truncated || bfsRes.truncated;
+
+  const relatives: string[] = [];
+  for (const key of listRes.keys) {
+    const rel = stripEmployeeRootFromKey(key, root);
+    if (rel) relatives.push(rel);
+  }
+
+  const matchesFromKeys = matchSiteFolderPaths(relatives, q);
+  const matchesFromFolders = matchSiteFolderPaths(bfsRes.relativePaths, q);
+  const matches = new Map(matchesFromKeys);
+  for (const [folderPath, meta] of matchesFromFolders) {
+    if (!matches.has(folderPath)) matches.set(folderPath, meta);
+  }
+
+  const hits: SiteSearchHit[] = [];
+  for (const [folderPath, { siteSegment }] of matches) {
+    const parts = folderPath.split("/").filter(Boolean);
+    const parentPathBeforeSite = parts.length > 1 ? parts.slice(0, -1).join("/") : "";
+    const fpSlash = `${folderPath}/`;
+    let fileCountInSubtree = 0;
+    for (const r of relatives) {
+      if (r === folderPath || r.startsWith(fpSlash)) fileCountInSubtree++;
+    }
+    hits.push({
+      employeeId: emp.id,
+      employeeName: emp.full_name ?? "—",
+      employeeEmail: emp.email,
+      siteFolderName: siteSegment,
+      pathUnderEmployee: folderPath,
+      parentPathBeforeSite,
+      fileCountInSubtree,
+    });
+  }
+  return { hits, truncated };
+}
 
 export async function GET(req: Request) {
   const gate = await requirePostProcessor();
@@ -51,59 +112,25 @@ export async function GET(req: Request) {
   const s3 = getWasabiEmployeeFilesS3Client();
   const bucket = getWasabiEmployeeFilesBucket();
 
-  const hits: {
-    employeeId: string;
-    employeeName: string;
-    employeeEmail: string | null;
-    siteFolderName: string;
-    pathUnderEmployee: string;
-    parentPathBeforeSite: string;
-    fileCountInSubtree: number;
-  }[] = [];
+  const empList = employees ?? [];
+  const hits: SiteSearchHit[] = [];
   let globalTruncated = false;
 
-  for (const emp of employees ?? []) {
-    if (hits.length >= MAX_RESULTS) break;
-    const root = buildEmployeeRootPrefix(regionSeg, emp.full_name ?? null, emp.id);
-    let listRes: { keys: string[]; truncated: boolean };
-    let bfsRes: { relativePaths: string[]; truncated: boolean };
+  for (let i = 0; i < empList.length && hits.length < MAX_RESULTS; i += EMPLOYEE_SITE_SEARCH_CONCURRENCY) {
+    const batch = empList.slice(i, i + EMPLOYEE_SITE_SEARCH_CONCURRENCY);
+    let batchResults: { hits: SiteSearchHit[]; truncated: boolean }[];
     try {
-      [listRes, bfsRes] = await Promise.all([
-        listAllObjectKeysUnderPrefix(s3, bucket, root, MAX_KEYS_PER_EMPLOYEE),
-        listRelativeFolderPathsBfs(s3, bucket, root, MAX_FOLDERS_BFS_PER_EMPLOYEE),
-      ]);
+      batchResults = await Promise.all(batch.map((emp) => siteSearchHitsForEmployee(emp, regionSeg, s3, bucket, q)));
     } catch (e) {
       const msg = e instanceof Error ? e.message : "List failed";
       return NextResponse.json({ message: msg }, { status: 500 });
     }
-    if (listRes.truncated || bfsRes.truncated) globalTruncated = true;
-
-    const relatives: string[] = [];
-    for (const key of listRes.keys) {
-      const rel = stripEmployeeRootFromKey(key, root);
-      if (rel) relatives.push(rel);
-    }
-
-    const matchesFromKeys = matchSiteFolderPaths(relatives, q);
-    const matchesFromFolders = matchSiteFolderPaths(bfsRes.relativePaths, q);
-    const matches = new Map(matchesFromKeys);
-    for (const [folderPath, meta] of matchesFromFolders) {
-      if (!matches.has(folderPath)) matches.set(folderPath, meta);
-    }
-    for (const [folderPath, { siteSegment }] of matches) {
-      if (hits.length >= MAX_RESULTS) break;
-      const parts = folderPath.split("/").filter(Boolean);
-      const parentPathBeforeSite = parts.length > 1 ? parts.slice(0, -1).join("/") : "";
-      const fileCountInSubtree = relatives.filter((r) => r === folderPath || r.startsWith(`${folderPath}/`)).length;
-      hits.push({
-        employeeId: emp.id,
-        employeeName: emp.full_name ?? "—",
-        employeeEmail: emp.email,
-        siteFolderName: siteSegment,
-        pathUnderEmployee: folderPath,
-        parentPathBeforeSite,
-        fileCountInSubtree,
-      });
+    for (const br of batchResults) {
+      if (br.truncated) globalTruncated = true;
+      for (const h of br.hits) {
+        if (hits.length >= MAX_RESULTS) break;
+        hits.push(h);
+      }
     }
   }
 

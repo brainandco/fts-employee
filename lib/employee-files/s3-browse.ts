@@ -83,36 +83,48 @@ export async function listRelativeFolderPathsBfs(
   return { relativePaths, truncated };
 }
 
-/** List immediate children under prefix (trailing slash normalized). Single S3 list call (one “directory” level). */
+/** One directory level; paginates past the S3 1000-key page limit. */
 export async function browsePrefix(s3: S3Client, bucket: string, prefix: string): Promise<BrowseEntry[]> {
   const p = prefix === "" ? "" : prefix.replace(/\/*$/, "/");
-  const out: BrowseEntry[] = [];
-  const list = await s3.send(
-    new ListObjectsV2Command({
-      Bucket: bucket,
-      Prefix: p,
-      Delimiter: "/",
-      MaxKeys: LIST_PAGE_MAX_KEYS,
-    })
-  );
-  for (const cp of list.CommonPrefixes ?? []) {
-    const full = cp.Prefix ?? "";
-    const name = full.slice(p.length).replace(/\/$/, "");
-    if (name) out.push({ type: "folder", name, prefix: full });
-  }
-  for (const obj of list.Contents ?? []) {
-    const key = obj.Key;
-    if (!key || key.endsWith("/") || key.endsWith("/.keep")) continue;
-    const name = key.slice(p.length);
-    if (!name || name.includes("/")) continue;
-    out.push({
-      type: "file",
-      name,
-      key,
-      size: obj.Size ?? null,
-      lastModified: obj.LastModified?.toISOString() ?? null,
-    });
-  }
+  const foldersByName = new Map<string, BrowseEntry>();
+  const filesByName = new Map<string, BrowseEntry>();
+  let continuationToken: string | undefined;
+  do {
+    const list = await s3.send(
+      new ListObjectsV2Command({
+        Bucket: bucket,
+        Prefix: p,
+        Delimiter: "/",
+        MaxKeys: LIST_PAGE_MAX_KEYS,
+        ContinuationToken: continuationToken,
+      })
+    );
+    for (const cp of list.CommonPrefixes ?? []) {
+      const full = cp.Prefix ?? "";
+      const name = full.slice(p.length).replace(/\/$/, "");
+      if (name && !foldersByName.has(name)) {
+        foldersByName.set(name, { type: "folder", name, prefix: full });
+      }
+    }
+    for (const obj of list.Contents ?? []) {
+      const key = obj.Key;
+      if (!key || key.endsWith("/") || key.endsWith("/.keep")) continue;
+      const name = key.slice(p.length);
+      if (!name || name.includes("/")) continue;
+      if (!filesByName.has(name)) {
+        filesByName.set(name, {
+          type: "file",
+          name,
+          key,
+          size: obj.Size ?? null,
+          lastModified: obj.LastModified?.toISOString() ?? null,
+        });
+      }
+    }
+    continuationToken = list.IsTruncated ? list.NextContinuationToken : undefined;
+  } while (continuationToken);
+
+  const out = [...foldersByName.values(), ...filesByName.values()];
   out.sort((a, b) => {
     if (a.type !== b.type) return a.type === "folder" ? -1 : 1;
     return a.name.localeCompare(b.name);

@@ -74,17 +74,22 @@ export async function GET(req: Request) {
     .filter((e): e is Extract<(typeof entries)[number], { type: "file" }> => e.type === "file")
     .map((e) => e.key);
 
-  const rows: BrowseFileRow[] = [];
   const KEY_CHUNK = 80;
+  const slices: string[][] = [];
   for (let i = 0; i < fileKeys.length; i += KEY_CHUNK) {
-    const slice = fileKeys.slice(i, i + KEY_CHUNK);
-    const { data: chunk } = await supabase
-      .from("employee_personal_files")
-      .select("id, file_name, mime_type, byte_size, upload_status, created_at, storage_key")
-      .eq("employee_id", me.id)
-      .in("storage_key", slice);
-    rows.push(...((chunk ?? []) as BrowseFileRow[]));
+    slices.push(fileKeys.slice(i, i + KEY_CHUNK));
   }
+  const chunkRows = await Promise.all(
+    slices.map((slice) =>
+      supabase
+        .from("employee_personal_files")
+        .select("id, file_name, mime_type, byte_size, upload_status, created_at, storage_key")
+        .eq("employee_id", me.id)
+        .in("storage_key", slice)
+        .then(({ data }) => (data ?? []) as BrowseFileRow[])
+    )
+  );
+  const rows = chunkRows.flat();
 
   const byKey = new Map(rows.map((r) => [r.storage_key as string, r]));
 
