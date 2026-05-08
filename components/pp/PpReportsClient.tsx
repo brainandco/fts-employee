@@ -114,6 +114,9 @@ export function PpReportsClient({
   const folderInputRef = useRef<HTMLInputElement>(null);
   const uploadInFlightRef = useRef(false);
 
+  const [selectedZipPaths, setSelectedZipPaths] = useState<string[]>([]);
+  const [zipBulkBusy, setZipBulkBusy] = useState(false);
+
   const loadBrowse = useCallback(async () => {
     if (!configured) return;
     setLoading(true);
@@ -140,6 +143,61 @@ export function PpReportsClient({
   useEffect(() => {
     void loadBrowse();
   }, [loadBrowse]);
+
+  useEffect(() => {
+    setSelectedZipPaths([]);
+  }, [browsePath]);
+
+  function toggleZipFolderSelection(folderPath: string) {
+    setSelectedZipPaths((prev) =>
+      prev.includes(folderPath) ? prev.filter((p) => p !== folderPath) : [...prev, folderPath]
+    );
+  }
+
+  function triggerFolderZipDownload(folderPath: string) {
+    const u = new URL("/api/pp/reports/folder-zip", window.location.origin);
+    u.searchParams.set("path", folderPath);
+    window.location.href = u.toString();
+  }
+
+  async function downloadSelectedFoldersZip() {
+    if (selectedZipPaths.length === 0) return;
+    setZipBulkBusy(true);
+    setMsg("");
+    setError("");
+    try {
+      const res = await fetch("/api/pp/reports/folder-zip-multi", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ paths: selectedZipPaths }),
+      });
+      const ct = res.headers.get("Content-Type") ?? "";
+      if (!res.ok) {
+        const data = ct.includes("application/json") ? await res.json().catch(() => ({})) : {};
+        throw new Error((data as { message?: string }).message || "Download failed");
+      }
+      const blob = await res.blob();
+      const cd = res.headers.get("Content-Disposition");
+      let filename = "folders.zip";
+      if (cd) {
+        const star = /filename\*=UTF-8''([^;]+)/i.exec(cd);
+        const plain = /filename="([^"]+)"/i.exec(cd);
+        if (star?.[1]) filename = decodeURIComponent(star[1]);
+        else if (plain?.[1]) filename = plain[1];
+      }
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(url);
+      setMsg(`Download started (${selectedZipPaths.length} folder${selectedZipPaths.length === 1 ? "" : "s"}).`);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Download failed");
+    } finally {
+      setZipBulkBusy(false);
+    }
+  }
 
   async function createProjectFolder() {
     const name = newFolderName.trim().replace(/[^\w.\-()+ @&$=!*,?:;/]/g, "_").slice(0, 120);
@@ -435,6 +493,30 @@ export function PpReportsClient({
           </button>
         </div>
 
+        {selectedZipPaths.length > 0 ? (
+          <div className="mt-3 flex flex-wrap items-center gap-2 rounded-lg border border-indigo-100 bg-indigo-50/80 px-3 py-2 text-xs text-indigo-950">
+            <span className="font-medium">
+              {selectedZipPaths.length} folder{selectedZipPaths.length === 1 ? "" : "s"} selected for ZIP
+            </span>
+            <button
+              type="button"
+              disabled={zipBulkBusy || uploadBusy || !!uploadSession}
+              onClick={() => void downloadSelectedFoldersZip()}
+              className="rounded-md bg-indigo-600 px-2.5 py-1 font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
+            >
+              {zipBulkBusy ? "Preparing…" : "Download selected as ZIP"}
+            </button>
+            <button
+              type="button"
+              disabled={zipBulkBusy}
+              onClick={() => setSelectedZipPaths([])}
+              className="rounded-md border border-indigo-200 bg-white px-2.5 py-1 font-medium text-indigo-800 hover:bg-indigo-100 disabled:opacity-50"
+            >
+              Clear selection
+            </button>
+          </div>
+        ) : null}
+
         {loading ? (
           <p className="mt-4 text-sm text-zinc-500">Loading…</p>
         ) : (
@@ -442,6 +524,9 @@ export function PpReportsClient({
             <table className="w-full min-w-[480px] text-sm">
               <thead>
                 <tr className="border-b border-zinc-200 bg-zinc-50">
+                  <th className="w-10 px-2 py-2 text-center font-medium text-zinc-800">
+                    <span className="sr-only">Include in multi-folder ZIP</span>
+                  </th>
                   <th className="px-3 py-2 text-left font-medium text-zinc-800">Name</th>
                   <th className="px-3 py-2 text-left font-medium text-zinc-800">Size</th>
                   <th className="px-3 py-2 text-right font-medium text-zinc-800">Actions</th>
@@ -450,17 +535,38 @@ export function PpReportsClient({
               <tbody>
                 {folders.map((f) => (
                   <tr key={f.path} className="border-b border-zinc-100">
+                    <td className="w-10 px-2 py-2 text-center align-middle" onClick={(e) => e.stopPropagation()}>
+                      <input
+                        type="checkbox"
+                        className="h-4 w-4 rounded border-zinc-300 text-indigo-600 focus:ring-indigo-500"
+                        checked={selectedZipPaths.includes(f.path)}
+                        disabled={uploadBusy || !!uploadSession}
+                        title="Include in multi-folder ZIP download"
+                        aria-label={`Include folder ${f.name} in ZIP bundle`}
+                        onChange={() => toggleZipFolderSelection(f.path)}
+                      />
+                    </td>
                     <td className="px-3 py-2">
                       <button type="button" className="font-medium text-indigo-600 hover:underline" onClick={() => setBrowsePath(f.path)}>
                         {f.name}/
                       </button>
                     </td>
                     <td className="px-3 py-2 text-zinc-500">—</td>
-                    <td className="px-3 py-2 text-right text-zinc-400">—</td>
+                    <td className="px-3 py-2 text-right">
+                      <button
+                        type="button"
+                        disabled={uploadBusy || !!uploadSession}
+                        onClick={() => triggerFolderZipDownload(f.path)}
+                        className="text-xs font-medium text-indigo-600 hover:underline disabled:opacity-50"
+                      >
+                        Download zip
+                      </button>
+                    </td>
                   </tr>
                 ))}
                 {files.map((f) => (
                   <tr key={f.key} className="border-b border-zinc-100">
+                    <td className="w-10 px-2 py-2" aria-hidden />
                     <td className="px-3 py-2 font-medium text-zinc-900">{f.name}</td>
                     <td className="px-3 py-2 text-zinc-600">{formatBytes(f.size)}</td>
                     <td className="px-3 py-2 text-right">
@@ -481,7 +587,7 @@ export function PpReportsClient({
                 ))}
                 {folders.length === 0 && files.length === 0 ? (
                   <tr>
-                    <td colSpan={3} className="px-3 py-8 text-center text-zinc-500">
+                    <td colSpan={4} className="px-3 py-8 text-center text-zinc-500">
                       Empty. Create a project folder or upload files.
                     </td>
                   </tr>
