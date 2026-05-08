@@ -190,6 +190,9 @@ export function PmEmployeeFilesClient({ initialFolders }: { initialFolders: PmEm
   const [siteSearchError, setSiteSearchError] = useState("");
   const [siteSearchHasRun, setSiteSearchHasRun] = useState(false);
 
+  const [selectedZipPaths, setSelectedZipPaths] = useState<string[]>([]);
+  const [zipBulkBusy, setZipBulkBusy] = useState(false);
+
   const loadFolders = useCallback(async () => {
     const res = await fetch("/api/pm/employee-file-folders");
     const data = await res.json();
@@ -566,9 +569,17 @@ export function PmEmployeeFilesClient({ initialFolders }: { initialFolders: PmEm
     }
   }
 
-  const browsePathDepth = browsePath.split("/").filter(Boolean).length;
-  const showSiteZipOnChildFolders =
-    !browseAtRegionRoot && browseEmployeeId != null && browsePathDepth >= 1;
+  const showEmployeeFolderZipUi = !browseAtRegionRoot && browseEmployeeId != null;
+
+  useEffect(() => {
+    setSelectedZipPaths([]);
+  }, [regionId, browseEmployeeId, browsePath, browseAtRegionRoot]);
+
+  function toggleZipFolderSelection(folderPath: string) {
+    setSelectedZipPaths((prev) =>
+      prev.includes(folderPath) ? prev.filter((p) => p !== folderPath) : [...prev, folderPath]
+    );
+  }
 
   function triggerSiteFolderZipDownload(siteFolderPath: string) {
     if (!regionId || !browseEmployeeId) return;
@@ -600,6 +611,49 @@ export function PmEmployeeFilesClient({ initialFolders }: { initialFolders: PmEm
       setMessage("Download link copied. Recipients can open it in a browser to download the zip (no portal login).");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Copy failed");
+    }
+  }
+
+  async function downloadSelectedFoldersZip() {
+    if (!regionId || !browseEmployeeId || selectedZipPaths.length === 0) return;
+    setZipBulkBusy(true);
+    setMessage("");
+    setError("");
+    try {
+      const res = await fetch("/api/pm/employee-files/site-folder-zip-multi", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          regionId,
+          employeeId: browseEmployeeId,
+          paths: selectedZipPaths,
+        }),
+      });
+      const ct = res.headers.get("Content-Type") ?? "";
+      if (!res.ok) {
+        const data = ct.includes("application/json") ? await res.json().catch(() => ({})) : {};
+        throw new Error((data as { message?: string }).message || "Download failed");
+      }
+      const blob = await res.blob();
+      const cd = res.headers.get("Content-Disposition");
+      let filename = "folders.zip";
+      if (cd) {
+        const star = /filename\*=UTF-8''([^;]+)/i.exec(cd);
+        const plain = /filename="([^"]+)"/i.exec(cd);
+        if (star?.[1]) filename = decodeURIComponent(star[1]);
+        else if (plain?.[1]) filename = plain[1];
+      }
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(url);
+      setMessage(`Download started (${selectedZipPaths.length} folder${selectedZipPaths.length === 1 ? "" : "s"}).`);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Download failed");
+    } finally {
+      setZipBulkBusy(false);
     }
   }
 
@@ -854,6 +908,30 @@ export function PmEmployeeFilesClient({ initialFolders }: { initialFolders: PmEm
                   </button>
                 ) : null}
 
+                {showEmployeeFolderZipUi && selectedZipPaths.length > 0 ? (
+                  <div className="mt-2 flex flex-wrap items-center gap-2 rounded-lg border border-indigo-100 bg-indigo-50/80 px-3 py-2 text-xs text-indigo-950">
+                    <span className="font-medium">
+                      {selectedZipPaths.length} folder{selectedZipPaths.length === 1 ? "" : "s"} selected for ZIP
+                    </span>
+                    <button
+                      type="button"
+                      disabled={zipBulkBusy || pickerLocked}
+                      onClick={() => void downloadSelectedFoldersZip()}
+                      className="rounded-md bg-indigo-600 px-2.5 py-1 font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
+                    >
+                      {zipBulkBusy ? "Preparing…" : "Download selected as ZIP"}
+                    </button>
+                    <button
+                      type="button"
+                      disabled={zipBulkBusy}
+                      onClick={() => setSelectedZipPaths([])}
+                      className="rounded-md border border-indigo-200 bg-white px-2.5 py-1 font-medium text-indigo-800 hover:bg-indigo-100 disabled:opacity-50"
+                    >
+                      Clear selection
+                    </button>
+                  </div>
+                ) : null}
+
                 {browseLoading ? (
                   <p className="mt-3 text-sm text-zinc-500">Loading…</p>
                 ) : (
@@ -861,6 +939,11 @@ export function PmEmployeeFilesClient({ initialFolders }: { initialFolders: PmEm
                     <table className="w-full min-w-[520px] text-sm">
                       <thead>
                         <tr className="border-b border-zinc-200 bg-zinc-50">
+                          {showEmployeeFolderZipUi ? (
+                            <th className="w-10 px-2 py-2 text-center font-medium text-zinc-800">
+                              <span className="sr-only">Include in multi-folder ZIP</span>
+                            </th>
+                          ) : null}
                           <th className="px-3 py-2 text-left font-medium text-zinc-800">Name</th>
                           <th className="px-3 py-2 text-left font-medium text-zinc-800">Size</th>
                           <th className="px-3 py-2 text-right font-medium text-zinc-800">Actions</th>
@@ -869,6 +952,22 @@ export function PmEmployeeFilesClient({ initialFolders }: { initialFolders: PmEm
                       <tbody>
                         {browseFolders.map((f) => (
                           <tr key={`folder-${f.path}`} className="border-b border-zinc-100">
+                            {showEmployeeFolderZipUi ? (
+                              <td
+                                className="w-10 px-2 py-2 text-center align-middle"
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                <input
+                                  type="checkbox"
+                                  className="h-4 w-4 rounded border-zinc-300 text-indigo-600 focus:ring-indigo-500"
+                                  checked={selectedZipPaths.includes(f.path)}
+                                  disabled={pickerLocked}
+                                  title="Include in multi-folder ZIP download"
+                                  aria-label={`Include folder ${f.name} in ZIP bundle`}
+                                  onChange={() => toggleZipFolderSelection(f.path)}
+                                />
+                              </td>
+                            ) : null}
                             <td className="px-3 py-2">
                               <button
                                 type="button"
@@ -882,7 +981,7 @@ export function PmEmployeeFilesClient({ initialFolders }: { initialFolders: PmEm
                             </td>
                             <td className="px-3 py-2 text-zinc-500">—</td>
                             <td className="px-3 py-2 text-right">
-                              {showSiteZipOnChildFolders ? (
+                              {showEmployeeFolderZipUi ? (
                                 <span className="inline-flex flex-wrap items-center justify-end gap-x-2 gap-y-1 text-xs">
                                   <button
                                     type="button"
@@ -910,6 +1009,7 @@ export function PmEmployeeFilesClient({ initialFolders }: { initialFolders: PmEm
                         ))}
                         {browseFiles.map((f) => (
                           <tr key={f.key} className="border-b border-zinc-100">
+                            {showEmployeeFolderZipUi ? <td className="w-10 px-2 py-2" aria-hidden /> : null}
                             <td className="px-3 py-2 font-medium text-zinc-900">{f.name}</td>
                             <td className="px-3 py-2 text-zinc-600">{formatBytes(f.size)}</td>
                             <td className="px-3 py-2 text-right">
@@ -942,7 +1042,10 @@ export function PmEmployeeFilesClient({ initialFolders }: { initialFolders: PmEm
                         ))}
                         {browseFolders.length === 0 && browseFiles.length === 0 ? (
                           <tr>
-                            <td colSpan={3} className="px-3 py-6 text-center text-zinc-500">
+                            <td
+                              colSpan={showEmployeeFolderZipUi ? 4 : 3}
+                              className="px-3 py-6 text-center text-zinc-500"
+                            >
                               {browseAtRegionRoot
                                 ? "No employee folders yet. When someone uploads, their folder appears here."
                                 : "This folder is empty."}

@@ -11,6 +11,10 @@ import {
 import { getWasabiEmployeeFilesBucket, getWasabiEmployeeFilesS3Client } from "@/lib/wasabi/s3-client";
 
 export const MAX_OBJECTS_IN_ZIP = 2_000;
+/** Cap for POST /site-folder-zip-multi: folder paths after deduplication. */
+export const MAX_FOLDERS_PER_MULTI_ZIP = 35;
+/** Hard cap on total S3 objects appended across all folders in one multi-zip. */
+export const MAX_OBJECTS_MULTI_ZIP_TOTAL = 12_000;
 
 export type ResolvedSiteZip =
   | {
@@ -71,15 +75,66 @@ export async function resolveSiteFolderZipContext(
   };
 }
 
+/**
+ * If both `Apr-2026` and `Apr-2026/day` are selected, keep only the ancestor so objects are not duplicated in the zip.
+ */
+export function dedupeAncestorFolderPaths(pathsRaw: string[]): string[] {
+  const normalized = [...new Set(pathsRaw.map((p) => normalizeRelativePathUnderEmployee(String(p ?? "").trim())).filter(Boolean))] as string[];
+  normalized.sort((a, b) => a.length - b.length);
+  const out: string[] = [];
+  for (const p of normalized) {
+    if (out.some((o) => p === o || p.startsWith(`${o}/`))) continue;
+    out.push(p);
+  }
+  return out;
+}
+
+export type MultiZipFolderEntry = {
+  normalizedSitePath: string;
+  sitePrefix: string;
+  zipRootFolderName: string;
+};
+
+export async function resolveMultiSiteFolderZipContexts(
+  regionId: string,
+  employeeId: string,
+  pathsRaw: string[]
+): Promise<{ ok: true; folders: MultiZipFolderEntry[] } | { ok: false; status: number; message: string }> {
+  const deduped = dedupeAncestorFolderPaths(pathsRaw);
+  if (deduped.length === 0) {
+    return { ok: false, status: 400, message: "No valid folder paths." };
+  }
+  if (deduped.length > MAX_FOLDERS_PER_MULTI_ZIP) {
+    return {
+      ok: false,
+      status: 400,
+      message: `At most ${MAX_FOLDERS_PER_MULTI_ZIP} folders per multi-download (after removing nested duplicates).`,
+    };
+  }
+  const folders: MultiZipFolderEntry[] = [];
+  for (const segment of deduped) {
+    const r = await resolveSiteFolderZipContext(regionId, employeeId, segment);
+    if (!r.ok) return { ok: false, status: r.status, message: r.message };
+    folders.push({
+      normalizedSitePath: r.normalizedSitePath,
+      sitePrefix: r.sitePrefix,
+      zipRootFolderName: r.normalizedSitePath.replace(/\\/g, "/"),
+    });
+  }
+  return { ok: true, folders };
+}
+
 export async function appendSiteFolderObjectsToArchive(
   s3: S3Client,
   bucket: string,
   sitePrefix: string,
   zipRootFolderName: string,
-  archive: Archiver
+  archive: Archiver,
+  options?: { maxObjects?: number }
 ): Promise<{ objectCount: number; truncated: boolean }> {
   const p = sitePrefix.replace(/\/*$/, "/");
-  const { keys, truncated } = await listAllObjectKeysUnderPrefix(s3, bucket, p, MAX_OBJECTS_IN_ZIP);
+  const maxObj = typeof options?.maxObjects === "number" && options.maxObjects > 0 ? options.maxObjects : MAX_OBJECTS_IN_ZIP;
+  const { keys, truncated } = await listAllObjectKeysUnderPrefix(s3, bucket, p, maxObj);
   let objectCount = 0;
   for (const key of keys) {
     if (key.endsWith("/.keep")) continue;
