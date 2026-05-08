@@ -78,6 +78,25 @@ export function PmPpReportsBucketClient({ configured }: { configured: boolean })
     window.location.href = u.toString();
   }
 
+  async function copyFolderDownloadLink(folderPath: string) {
+    setMsg("");
+    setError("");
+    try {
+      const res = await fetch(`${API}/folder-zip/token`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path: folderPath }),
+      });
+      const data = (await res.json().catch(() => ({}))) as { message?: string; url?: string };
+      if (!res.ok) throw new Error(data.message || "Could not create link");
+      if (!data.url) throw new Error("Bad response");
+      await navigator.clipboard.writeText(data.url);
+      setMsg("Download link copied. Recipients can open it in a browser to download the zip (no portal login).");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Copy failed");
+    }
+  }
+
   async function downloadSelectedFoldersZip() {
     if (selectedZipPaths.length === 0) return;
     setZipBulkBusy(true);
@@ -351,14 +370,25 @@ export function PmPpReportsBucketClient({ configured }: { configured: boolean })
                     </td>
                     <td className="px-3 py-2 text-zinc-500">—</td>
                     <td className="px-3 py-2 text-right">
-                      <button
-                        type="button"
-                        disabled={uploadBusy}
-                        onClick={() => triggerFolderZipDownload(f.path)}
-                        className="text-xs font-medium text-indigo-600 hover:underline disabled:opacity-50"
-                      >
-                        Download zip
-                      </button>
+                      <span className="inline-flex flex-wrap items-center justify-end gap-x-2 gap-y-1 text-xs">
+                        <button
+                          type="button"
+                          disabled={uploadBusy}
+                          onClick={() => triggerFolderZipDownload(f.path)}
+                          className="font-medium text-indigo-600 hover:underline disabled:opacity-50"
+                        >
+                          Download zip
+                        </button>
+                        <span className="text-zinc-300">|</span>
+                        <button
+                          type="button"
+                          disabled={uploadBusy}
+                          onClick={() => void copyFolderDownloadLink(f.path)}
+                          className="font-medium text-indigo-600 hover:underline disabled:opacity-50"
+                        >
+                          Copy download link
+                        </button>
+                      </span>
                     </td>
                   </tr>
                 ))}
