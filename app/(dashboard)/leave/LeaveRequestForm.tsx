@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { GuarantorCombobox, type GuarantorRow } from "./GuarantorCombobox";
 
+type GuarantorPickerMode = "same_region" | "pm_picks_admin" | "admin_picks_pm";
+
 const LEAVE_TYPES = [
   "Annual",
   "Sick",
@@ -22,6 +24,7 @@ export function LeaveRequestForm() {
   const [reason, setReason] = useState("");
   const [leaveType, setLeaveType] = useState<string>(LEAVE_TYPES[0]);
   const [guarantors, setGuarantors] = useState<GuarantorRow[]>([]);
+  const [guarantorMode, setGuarantorMode] = useState<GuarantorPickerMode>("same_region");
   const [guarantorId, setGuarantorId] = useState("");
   const [guarantorPickerKey, setGuarantorPickerKey] = useState(0);
   const [loadingGuarantors, setLoadingGuarantors] = useState(true);
@@ -37,6 +40,12 @@ export function LeaveRequestForm() {
         const data = await res.json().catch(() => ({}));
         if (!cancelled && res.ok && Array.isArray(data.employees)) {
           setGuarantors(data.employees);
+          const m = data.mode;
+          if (m === "pm_picks_admin" || m === "admin_picks_pm" || m === "same_region") {
+            setGuarantorMode(m);
+          } else {
+            setGuarantorMode("same_region");
+          }
         }
       } finally {
         if (!cancelled) setLoadingGuarantors(false);
@@ -55,7 +64,13 @@ export function LeaveRequestForm() {
       return;
     }
     if (!guarantorId) {
-      setMessage({ type: "error", text: "Choose a guarantor from your region." });
+      const hint =
+        guarantorMode === "pm_picks_admin"
+          ? "Choose an administrator as guarantor."
+          : guarantorMode === "admin_picks_pm"
+            ? "Choose a Project Manager as guarantor."
+            : "Choose a guarantor from your region.";
+      setMessage({ type: "error", text: hint });
       return;
     }
     if (!leaveType.trim()) {
@@ -119,7 +134,13 @@ export function LeaveRequestForm() {
         </select>
       </div>
       <div>
-        <span className="mb-1 block text-sm font-medium text-zinc-700">Guarantor (same region)</span>
+        <span className="mb-1 block text-sm font-medium text-zinc-700">
+          {guarantorMode === "pm_picks_admin"
+            ? "Guarantor (Administrator)"
+            : guarantorMode === "admin_picks_pm"
+              ? "Guarantor (Project Manager)"
+              : "Guarantor (same region)"}
+        </span>
         <GuarantorCombobox
           key={guarantorPickerKey}
           employees={guarantors}
@@ -128,7 +149,13 @@ export function LeaveRequestForm() {
           onChangeId={setGuarantorId}
         />
         {!loadingGuarantors && guarantors.length === 0 ? (
-          <p className="mt-1 text-xs text-amber-700">No other active employees in your region to select as guarantor.</p>
+          <p className="mt-1 text-xs text-amber-700">
+            {guarantorMode === "pm_picks_admin"
+              ? "No administrator portal users with a matching active employee record are available as guarantor. Contact HR."
+              : guarantorMode === "admin_picks_pm"
+                ? "No active Project Managers are available as guarantor. Contact HR."
+                : "No other active employees in your region to select as guarantor."}
+          </p>
         ) : (
           <p className="mt-1 text-xs text-zinc-500">Search by name or job line, then click a row to select.</p>
         )}

@@ -50,8 +50,10 @@ export default async function LeavePage() {
       <div className="rounded-2xl border border-violet-200 bg-gradient-to-r from-violet-50 to-fuchsia-50 p-5 sm:p-6">
         <h1 className="text-2xl font-semibold tracking-tight text-zinc-900">Leave</h1>
         <p className="mt-1 text-zinc-600">
-          Apply with a guarantor from your region and a leave type. An admin reviews first and sends a filled performa PDF;
-          after you sign and upload it, a super user gives final approval.
+          Apply with an eligible guarantor and a leave type: most staff choose someone in the same region; Project Managers
+          choose an Administrator, and portal Administrators choose a Project Manager (no region restriction for those).
+          An admin reviews first and sends a filled performa PDF; after you sign and upload it, a super user gives final
+          approval.
         </p>
       </div>
 

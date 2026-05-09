@@ -2,6 +2,7 @@ import { createServerSupabaseClient, getDataClient } from "@/lib/supabase/server
 import { NextResponse } from "next/server";
 import { inclusiveCalendarDays } from "@/lib/employee-requests/leave-metrics";
 import { getEmployeeRolesDisplay } from "@/lib/employee-roles-display";
+import { assertGuarantorAllowedForMode, resolveLeaveGuarantorPickerMode } from "@/lib/leave/guarantor-rules";
 
 async function regionAndProjectNames(
   supabase: Awaited<ReturnType<typeof getDataClient>>,
@@ -25,7 +26,7 @@ async function regionAndProjectNames(
 
 /**
  * POST /api/leave — submit a leave request (creates an approval with type leave_request).
- * Requires guarantor in same region and leave type. Snapshots applicant & guarantor for PDF performa.
+ * Requires a valid guarantor (same region for most staff; PM picks an admin employee; portal admin picks a PM). Snapshots applicant & guarantor for PDF performa.
  */
 export async function POST(req: Request) {
   const userClient = await createServerSupabaseClient();
@@ -45,7 +46,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ message: "From date and to date are required" }, { status: 400 });
   }
   if (!guarantor_employee_id) {
-    return NextResponse.json({ message: "Guarantor is required (must be another employee in your region)." }, { status: 400 });
+    return NextResponse.json({ message: "Guarantor is required." }, { status: 400 });
   }
   if (!leave_type) {
     return NextResponse.json({ message: "Leave type is required" }, { status: 400 });
@@ -78,7 +79,9 @@ export async function POST(req: Request) {
   if (employee.status !== "ACTIVE") {
     return NextResponse.json({ message: "Only active employees can request leave" }, { status: 403 });
   }
-  if (!employee.region_id) {
+
+  const guarantorMode = await resolveLeaveGuarantorPickerMode(supabase, session.user.id, employee.id);
+  if (guarantorMode === "same_region" && !employee.region_id) {
     return NextResponse.json({ message: "Your employee record has no region; contact admin." }, { status: 400 });
   }
 
@@ -91,11 +94,9 @@ export async function POST(req: Request) {
   if (!guarantor || guarantor.status !== "ACTIVE") {
     return NextResponse.json({ message: "Guarantor not found or inactive" }, { status: 400 });
   }
-  if (guarantor.id === employee.id) {
-    return NextResponse.json({ message: "You cannot select yourself as guarantor" }, { status: 400 });
-  }
-  if (guarantor.region_id !== employee.region_id) {
-    return NextResponse.json({ message: "Guarantor must be in the same region as you" }, { status: 400 });
+  const allowed = await assertGuarantorAllowedForMode(supabase, guarantorMode, employee.id, guarantor.id);
+  if (!allowed.ok) {
+    return NextResponse.json({ message: allowed.message }, { status: 400 });
   }
 
   const reqRp = await regionAndProjectNames(supabase, employee.region_id, employee.project_id, employee.project_name_other);
