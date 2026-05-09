@@ -1,13 +1,13 @@
 import { createServerSupabaseClient, getDataClient } from "@/lib/supabase/server";
 import {
   fetchActiveProjectManagerEmployees,
-  fetchAdministratorEmployeeGuarantors,
+  fetchAdministratorPortalUsersForPmGuarantor,
   resolveLeaveGuarantorPickerMode,
   type LeaveGuarantorPickerMode,
 } from "@/lib/leave/guarantor-rules";
 import { NextResponse } from "next/server";
 
-function rowsWithRoles(
+function employeeRowsWithRoles(
   rows: { id: string; full_name: string | null; job_title: string | null; department: string | null }[],
   rolesByEmpList: Map<string, string[]>
 ) {
@@ -47,7 +47,7 @@ async function loadRolesForEmployeeIds(
   return rolesByEmpList;
 }
 
-/** Employees eligible as leave guarantor for the current user (region-based or PM/admin rules). */
+/** Guarantors for leave: same-region employees, PM → portal admins (users), portal admin → PM employees. */
 export async function GET() {
   const userClient = await createServerSupabaseClient();
   const {
@@ -61,27 +61,41 @@ export async function GET() {
   const { data: me } = await supabase.from("employees").select("id, region_id").eq("email", email).maybeSingle();
 
   if (!me?.id) {
-    return NextResponse.json({ mode: "same_region" as LeaveGuarantorPickerMode, employees: [] });
+    return NextResponse.json({
+      mode: "same_region" as LeaveGuarantorPickerMode,
+      guarantor_id_kind: "employee" as const,
+      employees: [],
+    });
   }
 
   const mode = await resolveLeaveGuarantorPickerMode(supabase, session.user.id, me.id);
 
   if (mode === "pm_picks_admin") {
-    const rows = await fetchAdministratorEmployeeGuarantors(supabase, me.id);
-    const ids = rows.map((r) => r.id);
-    const rolesByEmpList = await loadRolesForEmployeeIds(supabase, ids);
-    return NextResponse.json({ mode, employees: rowsWithRoles(rows, rolesByEmpList) });
+    const rows = await fetchAdministratorPortalUsersForPmGuarantor(supabase, session.user.id);
+    return NextResponse.json({
+      mode,
+      guarantor_id_kind: "portal_user" as const,
+      employees: rows.map((r) => ({
+        id: r.id,
+        full_name: (r.full_name ?? "").trim() || r.email || r.id,
+        subtitle: r.subtitle,
+      })),
+    });
   }
 
   if (mode === "admin_picks_pm") {
     const rows = await fetchActiveProjectManagerEmployees(supabase, me.id);
     const ids = rows.map((r) => r.id);
     const rolesByEmpList = await loadRolesForEmployeeIds(supabase, ids);
-    return NextResponse.json({ mode, employees: rowsWithRoles(rows, rolesByEmpList) });
+    return NextResponse.json({
+      mode,
+      guarantor_id_kind: "employee" as const,
+      employees: employeeRowsWithRoles(rows, rolesByEmpList),
+    });
   }
 
   if (!me.region_id) {
-    return NextResponse.json({ mode, employees: [] });
+    return NextResponse.json({ mode, guarantor_id_kind: "employee" as const, employees: [] });
   }
 
   const { data: rows } = await supabase
@@ -97,7 +111,8 @@ export async function GET() {
 
   return NextResponse.json({
     mode,
-    employees: rowsWithRoles(
+    guarantor_id_kind: "employee" as const,
+    employees: employeeRowsWithRoles(
       (rows ?? []) as { id: string; full_name: string | null; job_title: string | null; department: string | null }[],
       rolesByEmpList
     ),

@@ -53,7 +53,7 @@ export default async function TransferRequestsPage() {
   const { data: roles } = await supabase.from("employee_roles").select("role").eq("employee_id", employee.id);
   const roleSet = new Set((roles ?? []).map((r) => r.role));
   const isSelfDt = roleSet.has("Self DT");
-  const canRequestAssetTransfer = roleSet.has("DT") || isSelfDt;
+  const canRequestAssetTransfer = roleSet.has("DT") || roleSet.has("Junior DT") || isSelfDt;
   const canRequestVehicleFlows = roleSet.has("Driver/Rigger") || isSelfDt;
   const canRequest = canRequestAssetTransfer || canRequestVehicleFlows;
   const canReview = roleSet.has("QC") || roleSet.has("Project Manager");

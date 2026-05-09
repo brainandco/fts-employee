@@ -82,6 +82,7 @@ export default async function DashboardLayout({
       isPm ||
       isQc ||
       roleSet.has("DT") ||
+      roleSet.has("Junior DT") ||
       roleSet.has("Driver/Rigger") ||
       roleSet.has("Self DT");
   }

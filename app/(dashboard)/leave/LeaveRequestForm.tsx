@@ -6,6 +6,8 @@ import { GuarantorCombobox, type GuarantorRow } from "./GuarantorCombobox";
 
 type GuarantorPickerMode = "same_region" | "pm_picks_admin" | "admin_picks_pm";
 
+type GuarantorIdKind = "employee" | "portal_user";
+
 const LEAVE_TYPES = [
   "Annual",
   "Sick",
@@ -25,6 +27,7 @@ export function LeaveRequestForm() {
   const [leaveType, setLeaveType] = useState<string>(LEAVE_TYPES[0]);
   const [guarantors, setGuarantors] = useState<GuarantorRow[]>([]);
   const [guarantorMode, setGuarantorMode] = useState<GuarantorPickerMode>("same_region");
+  const [guarantorIdKind, setGuarantorIdKind] = useState<GuarantorIdKind>("employee");
   const [guarantorId, setGuarantorId] = useState("");
   const [guarantorPickerKey, setGuarantorPickerKey] = useState(0);
   const [loadingGuarantors, setLoadingGuarantors] = useState(true);
@@ -46,6 +49,7 @@ export function LeaveRequestForm() {
           } else {
             setGuarantorMode("same_region");
           }
+          setGuarantorIdKind(data.guarantor_id_kind === "portal_user" ? "portal_user" : "employee");
         }
       } finally {
         if (!cancelled) setLoadingGuarantors(false);
@@ -66,7 +70,7 @@ export function LeaveRequestForm() {
     if (!guarantorId) {
       const hint =
         guarantorMode === "pm_picks_admin"
-          ? "Choose an administrator as guarantor."
+          ? "Choose a portal Administrator or Super User as guarantor."
           : guarantorMode === "admin_picks_pm"
             ? "Choose a Project Manager as guarantor."
             : "Choose a guarantor from your region.";
@@ -83,6 +87,10 @@ export function LeaveRequestForm() {
     }
     setLoading(true);
     try {
+      const guarantorBody =
+        guarantorIdKind === "portal_user"
+          ? { guarantor_user_id: guarantorId }
+          : { guarantor_employee_id: guarantorId };
       const res = await fetch("/api/leave", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -90,7 +98,7 @@ export function LeaveRequestForm() {
           from_date: fromDate,
           to_date: toDate,
           reason: reason.trim(),
-          guarantor_employee_id: guarantorId,
+          ...guarantorBody,
           leave_type: leaveType.trim(),
         }),
         credentials: "include",
@@ -136,7 +144,7 @@ export function LeaveRequestForm() {
       <div>
         <span className="mb-1 block text-sm font-medium text-zinc-700">
           {guarantorMode === "pm_picks_admin"
-            ? "Guarantor (Administrator)"
+            ? "Guarantor (portal Administrator / Super User)"
             : guarantorMode === "admin_picks_pm"
               ? "Guarantor (Project Manager)"
               : "Guarantor (same region)"}
@@ -147,11 +155,18 @@ export function LeaveRequestForm() {
           loading={loadingGuarantors}
           valueId={guarantorId}
           onChangeId={setGuarantorId}
+          noMatchHint={
+            guarantorMode === "pm_picks_admin"
+              ? "No matching portal administrator."
+              : guarantorMode === "admin_picks_pm"
+                ? "No matching Project Manager."
+                : "No match in your region."
+          }
         />
         {!loadingGuarantors && guarantors.length === 0 ? (
           <p className="mt-1 text-xs text-amber-700">
             {guarantorMode === "pm_picks_admin"
-              ? "No administrator portal users with a matching active employee record are available as guarantor. Contact HR."
+              ? "No portal Administrator or Super User accounts are available as guarantor. Contact HR."
               : guarantorMode === "admin_picks_pm"
                 ? "No active Project Managers are available as guarantor. Contact HR."
                 : "No other active employees in your region to select as guarantor."}

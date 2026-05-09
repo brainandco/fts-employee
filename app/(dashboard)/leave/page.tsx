@@ -51,9 +51,9 @@ export default async function LeavePage() {
         <h1 className="text-2xl font-semibold tracking-tight text-zinc-900">Leave</h1>
         <p className="mt-1 text-zinc-600">
           Apply with an eligible guarantor and a leave type: most staff choose someone in the same region; Project Managers
-          choose an Administrator, and portal Administrators choose a Project Manager (no region restriction for those).
-          An admin reviews first and sends a filled performa PDF; after you sign and upload it, a super user gives final
-          approval.
+          choose a portal Administrator or Super User account (not necessarily an employee record); portal Administrators
+          choose an employee who has the Project Manager role (no region restriction for those two cases). An admin reviews
+          first and sends a filled performa PDF; after you sign and upload it, a super user gives final approval.
         </p>
       </div>
 

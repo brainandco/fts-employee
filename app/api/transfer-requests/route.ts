@@ -27,7 +27,10 @@ export async function GET() {
   const roleSet = new Set((roles ?? []).map((r) => r.role));
   const isSelfDt = roleSet.has("Self DT");
   const canRequest =
-    roleSet.has("DT") || roleSet.has("Driver/Rigger") || isSelfDt;
+    roleSet.has("DT") ||
+    roleSet.has("Junior DT") ||
+    roleSet.has("Driver/Rigger") ||
+    isSelfDt;
   const canReview = roleSet.has("QC") || roleSet.has("Project Manager");
   const isPm = roleSet.has("Project Manager");
 
@@ -87,10 +90,11 @@ export async function POST(req: Request) {
   const { data: roles } = await supabase.from("employee_roles").select("role").eq("employee_id", employee.id);
   const roleSet = new Set((roles ?? []).map((r) => r.role));
   const isSelfDt = roleSet.has("Self DT");
-  const isDt = roleSet.has("DT") || isSelfDt;
+  const isJuniorDt = roleSet.has("Junior DT");
+  const isDtClassForAssetTransfer = roleSet.has("DT") || isJuniorDt || isSelfDt;
   const isDriver = roleSet.has("Driver/Rigger") || isSelfDt;
-  if (!isDt && !isDriver) {
-    return NextResponse.json({ message: "Only DT, Driver/Rigger, or Self DT can create transfer requests" }, { status: 403 });
+  if (!isDtClassForAssetTransfer && !isDriver) {
+    return NextResponse.json({ message: "Only DT, Junior DT, Driver/Rigger, or Self DT can create transfer requests" }, { status: 403 });
   }
 
   let target_employee_id: string | null = null;
@@ -160,7 +164,9 @@ export async function POST(req: Request) {
   const handoverUrls = parseImageUrlArray(body.handover_image_urls);
 
   if (request_type === "asset_transfer") {
-    if (!isDt) return NextResponse.json({ message: "Only DT can request asset transfer" }, { status: 400 });
+    if (!isDtClassForAssetTransfer) {
+      return NextResponse.json({ message: "Only DT, Junior DT, or Self DT can request asset transfer" }, { status: 400 });
+    }
     if (!assetIdInput || !targetEmployeeIdInput) {
       return NextResponse.json({ message: "Asset and target DT are required" }, { status: 400 });
     }

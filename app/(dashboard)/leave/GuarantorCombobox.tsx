@@ -12,11 +12,14 @@ export function GuarantorCombobox({
   loading,
   valueId,
   onChangeId,
+  noMatchHint = "No match in your region.",
 }: {
   employees: GuarantorRow[];
   loading: boolean;
   valueId: string;
   onChangeId: (id: string) => void;
+  /** Shown when the filter returns no rows (e.g. PM picking admins vs same-region). */
+  noMatchHint?: string;
 }) {
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
@@ -106,7 +109,7 @@ export function GuarantorCombobox({
       ) : null}
       {open && !loading && query.trim() && filtered.length === 0 ? (
         <div className="absolute z-30 mt-1 w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-500 shadow-lg">
-          No match in your region.
+          {noMatchHint}
         </div>
       ) : null}
     </div>

@@ -7,14 +7,23 @@ export const SUPER_ROLE_ID = "a0000000-0000-0000-0000-000000000000";
 
 export type LeaveGuarantorPickerMode = "same_region" | "pm_picks_admin" | "admin_picks_pm";
 
-/** Exact ILIKE match (escapes `%` and `_` for PostgREST `ilike`). */
-function escapeIlikeExact(value: string): string {
-  return value.replace(/\\/g, "\\\\").replace(/%/g, "\\%").replace(/_/g, "\\_");
+async function collectAdministratorPortalUserIds(supabase: SupabaseClient): Promise<Set<string>> {
+  const adminUserIds = new Set<string>();
+  const { data: flagSupers } = await supabase.from("users_profile").select("id").eq("status", "ACTIVE").eq("is_super_user", true);
+  for (const p of flagSupers ?? []) adminUserIds.add(p.id as string);
+
+  const { data: namedRoles } = await supabase
+    .from("user_roles")
+    .select("user_id")
+    .in("role_id", [SUPER_ROLE_ID, ADMINISTRATOR_ROLE_ID]);
+  for (const r of namedRoles ?? []) adminUserIds.add(r.user_id as string);
+
+  return adminUserIds;
 }
 
 /**
  * PM ↔ Administrator guarantor routing only. Everyone else uses same-region guarantors.
- * If the user is both Administrator (portal) and PM (employee role), Administrator rule wins.
+ * If the user is both Administrator (portal) and PM (employee), Administrator rule wins.
  */
 export async function resolveLeaveGuarantorPickerMode(
   supabase: SupabaseClient,
@@ -78,54 +87,86 @@ export async function fetchActiveProjectManagerEmployees(
   return (rows ?? []) as { id: string; full_name: string | null; job_title: string | null; department: string | null }[];
 }
 
+export type PortalAdminGuarantorRow = {
+  id: string;
+  full_name: string | null;
+  email: string | null;
+  subtitle: string;
+};
+
 /**
- * Active employees whose portal account is Super User or Administrator (matched by email).
- * Excludes applicant. Not filtered by region.
+ * Active portal users who are Super User or Administrator (by flag or role).
+ * Excludes the applicant's auth user so they cannot pick themselves. IDs are `users_profile.id`.
  */
-export async function fetchAdministratorEmployeeGuarantors(
+export async function fetchAdministratorPortalUsersForPmGuarantor(
   supabase: SupabaseClient,
-  excludeEmployeeId: string
-): Promise<{ id: string; full_name: string | null; job_title: string | null; department: string | null }[]> {
-  const adminUserIds = new Set<string>();
-  const { data: flagSupers } = await supabase.from("users_profile").select("id").eq("status", "ACTIVE").eq("is_super_user", true);
-  for (const p of flagSupers ?? []) adminUserIds.add(p.id as string);
-
-  const { data: namedRoles } = await supabase
-    .from("user_roles")
-    .select("user_id")
-    .in("role_id", [SUPER_ROLE_ID, ADMINISTRATOR_ROLE_ID]);
-  for (const r of namedRoles ?? []) adminUserIds.add(r.user_id as string);
-
+  excludeAuthUserId: string
+): Promise<PortalAdminGuarantorRow[]> {
+  const adminUserIds = await collectAdministratorPortalUserIds(supabase);
+  adminUserIds.delete(excludeAuthUserId);
   if (adminUserIds.size === 0) return [];
 
   const { data: profiles } = await supabase
     .from("users_profile")
-    .select("id, email")
+    .select("id, full_name, email, is_super_user")
     .eq("status", "ACTIVE")
     .in("id", [...adminUserIds]);
 
-  const emails = new Set<string>();
-  for (const p of profiles ?? []) {
-    const em = String(p.email ?? "").trim().toLowerCase();
-    if (em) emails.add(em);
+  const list = profiles ?? [];
+  if (list.length === 0) return [];
+
+  const userIds = list.map((p) => p.id as string);
+  const { data: roleRows } = await supabase.from("user_roles").select("user_id, roles(name)").in("user_id", userIds);
+
+  const subtitleSets = new Map<string, Set<string>>();
+  for (const p of list) {
+    const s = new Set<string>();
+    if (p.is_super_user) s.add("Super User");
+    subtitleSets.set(p.id as string, s);
   }
-  if (emails.size === 0) return [];
+  for (const r of roleRows ?? []) {
+    const uid = r.user_id as string;
+    const roleName = (r as { roles?: { name?: string } | null }).roles?.name;
+    if (!subtitleSets.has(uid)) subtitleSets.set(uid, new Set());
+    if (roleName) subtitleSets.get(uid)!.add(String(roleName).trim());
+  }
 
-  const emailList = [...emails];
-  const { data: emps } = await supabase
-    .from("employees")
-    .select("id, full_name, job_title, department, email")
-    .eq("status", "ACTIVE")
-    .in("email", emailList);
+  const out: PortalAdminGuarantorRow[] = list.map((p) => {
+    const id = p.id as string;
+    const labels = [...(subtitleSets.get(id) ?? new Set())].sort((a, b) => a.localeCompare(b));
+    return {
+      id,
+      full_name: p.full_name,
+      email: p.email,
+      subtitle: labels.length ? labels.join(", ") : "Portal administrator",
+    };
+  });
+  out.sort((a, b) =>
+    String(a.full_name ?? a.email ?? "").localeCompare(String(b.full_name ?? b.email ?? ""), undefined, {
+      sensitivity: "base",
+    })
+  );
+  return out;
+}
 
-  const out = (emps ?? []).filter((e) => e.id !== excludeEmployeeId && emails.has(String(e.email ?? "").trim().toLowerCase()));
-  out.sort((a, b) => String(a.full_name ?? "").localeCompare(String(b.full_name ?? ""), undefined, { sensitivity: "base" }));
-  return out.map((e) => ({
-    id: e.id as string,
-    full_name: e.full_name,
-    job_title: e.job_title,
-    department: e.department,
-  }));
+/** PM employee: guarantor is a portal Administrator / Super User (`users_profile.id`), not an employee row. */
+export async function assertPortalAdminGuarantorForPmApplicant(
+  supabase: SupabaseClient,
+  applicantAuthUserId: string,
+  guarantorUserId: string
+): Promise<{ ok: true } | { ok: false; message: string }> {
+  if (guarantorUserId === applicantAuthUserId) {
+    return { ok: false, message: "You cannot select yourself as guarantor" };
+  }
+  const { data: profile } = await supabase.from("users_profile").select("id, status").eq("id", guarantorUserId).maybeSingle();
+  if (!profile || profile.status !== "ACTIVE") {
+    return { ok: false, message: "Guarantor not found or inactive" };
+  }
+  const okAdmin = await isAdministratorPortalUser(supabase, guarantorUserId);
+  if (!okAdmin) {
+    return { ok: false, message: "Guarantor must be a portal Administrator or Super User." };
+  }
+  return { ok: true };
 }
 
 export async function assertGuarantorAllowedForMode(
@@ -140,7 +181,7 @@ export async function assertGuarantorAllowedForMode(
 
   const { data: guarantor } = await supabase
     .from("employees")
-    .select("id, email, status")
+    .select("id, status")
     .eq("id", guarantorEmployeeId)
     .maybeSingle();
   if (!guarantor || guarantor.status !== "ACTIVE") {
@@ -162,25 +203,6 @@ export async function assertGuarantorAllowedForMode(
   if (mode === "admin_picks_pm") {
     const ok = await employeeHasRole(supabase, guarantorEmployeeId, "Project Manager");
     if (!ok) return { ok: false, message: "Guarantor must be an active Project Manager." };
-    return { ok: true };
-  }
-
-  if (mode === "pm_picks_admin") {
-    const email = String(guarantor.email ?? "").trim().toLowerCase();
-    if (!email) return { ok: false, message: "Selected guarantor has no email on file." };
-    const { data: up } = await supabase
-      .from("users_profile")
-      .select("id, is_super_user")
-      .ilike("email", escapeIlikeExact(email))
-      .maybeSingle();
-    if (!up) return { ok: false, message: "Guarantor must be an Administrator portal user with a matching employee profile." };
-    if (up.is_super_user) return { ok: true };
-    const { data: ur } = await supabase
-      .from("user_roles")
-      .select("role_id")
-      .eq("user_id", up.id)
-      .in("role_id", [SUPER_ROLE_ID, ADMINISTRATOR_ROLE_ID]);
-    if (!ur?.length) return { ok: false, message: "Guarantor must be an Administrator or Super User (portal role)." };
     return { ok: true };
   }
 
