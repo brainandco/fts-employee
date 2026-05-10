@@ -2,7 +2,7 @@ import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { getDataClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import Link from "next/link";
-import { hasReportingPortalRole } from "@/lib/pp/auth";
+import { canAccessPpTeamLeaveRequests, hasReportingPortalRole } from "@/lib/pp/auth";
 
 type LeavePayload = {
   from_date?: string;
@@ -25,6 +25,7 @@ export default async function PpTeamLeavesPage() {
 
   const { data: portalRoles } = await supabase.from("employee_roles").select("role").eq("employee_id", me.id);
   if (!hasReportingPortalRole(portalRoles ?? [])) redirect("/dashboard");
+  if (!canAccessPpTeamLeaveRequests(portalRoles ?? [])) redirect("/leave");
 
   const { data: approvals } = await supabase
     .from("approvals")

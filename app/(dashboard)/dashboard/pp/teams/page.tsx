@@ -3,7 +3,7 @@ import { getDataClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import { PpTeamMemberTabs, type PpTeamMemberTab } from "@/components/pp/PpTeamMemberTabs";
-import { hasReportingPortalRole } from "@/lib/pp/auth";
+import { canAccessPpTeamLeaveRequests, hasReportingPortalRole } from "@/lib/pp/auth";
 
 type AssetRow = {
   id: string;
@@ -28,6 +28,7 @@ export default async function PpTeamsPage() {
 
   const { data: roles } = await supabase.from("employee_roles").select("role").eq("employee_id", employee.id);
   if (!hasReportingPortalRole(roles ?? [])) redirect("/dashboard");
+  const showTeamLeaveLink = canAccessPpTeamLeaveRequests(roles ?? []);
 
   const { data: teams } = await supabase
     .from("teams")
@@ -130,11 +131,13 @@ export default async function PpTeamsPage() {
         <p className="mt-2 max-w-2xl text-sm text-zinc-700">
           Open a team and use the member tabs: tools for DT, SIMs and vehicles for each member.
         </p>
-        <p className="mt-3">
-          <Link href="/dashboard/pp/leaves" className="text-sm font-medium text-teal-800 underline hover:text-teal-950">
-            Team leave requests →
-          </Link>
-        </p>
+        {showTeamLeaveLink ? (
+          <p className="mt-3">
+            <Link href="/dashboard/pp/leaves" className="text-sm font-medium text-teal-800 underline hover:text-teal-950">
+              Team leave requests →
+            </Link>
+          </p>
+        ) : null}
       </section>
 
       {teamList.length === 0 ? (

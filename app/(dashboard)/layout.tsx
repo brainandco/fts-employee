@@ -5,7 +5,7 @@ import { getDataClient } from "@/lib/supabase/server";
 import { CHANGE_PASSWORD_PATH, isPasswordChangeExemptPath } from "@/lib/auth/password-change-gate";
 import { EmployeePortalChrome } from "@/components/layout/EmployeePortalChrome";
 import type { EmployeeNavSection } from "@/components/layout/EmployeeSidebar";
-import { hasReportingPortalRole } from "@/lib/pp/auth";
+import { canAccessPpTeamLeaveRequests, hasReportingPortalRole } from "@/lib/pp/auth";
 
 const SUPER_ROLE_ID = "a0000000-0000-0000-0000-000000000000";
 
@@ -69,6 +69,7 @@ export default async function DashboardLayout({
   let isPm = false;
   let isQc = false;
   let isPp = false;
+  let showPpTeamLeaveNav = false;
   let isProjectCoordinator = false;
   let showTransferRequestsNav = false;
   if (employee) {
@@ -77,6 +78,7 @@ export default async function DashboardLayout({
     isPm = roleSet.has("Project Manager");
     isQc = roleSet.has("QC");
     isPp = hasReportingPortalRole(roles ?? []);
+    showPpTeamLeaveNav = canAccessPpTeamLeaveRequests(roles ?? []);
     isProjectCoordinator = roleSet.has("Project Coordinator");
     showTransferRequestsNav =
       isPm ||
@@ -177,9 +179,11 @@ export default async function DashboardLayout({
     if (isPp) {
       workspaceItems.push(
         { href: "/dashboard/pp-workspace", label: "Files workspace" },
-        { href: "/dashboard/pp", label: "Reporting teams" },
-        { href: "/dashboard/pp/leaves", label: "Team leave requests" }
+        { href: "/dashboard/pp", label: "Reporting teams" }
       );
+      if (showPpTeamLeaveNav) {
+        workspaceItems.push({ href: "/dashboard/pp/leaves", label: "Team leave requests" });
+      }
     }
     if (showTransferRequestsNav) {
       workspaceItems.push({ href: "/dashboard/transfer-requests", label: "Transfer requests" });

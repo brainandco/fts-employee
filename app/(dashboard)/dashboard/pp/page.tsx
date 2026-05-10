@@ -2,7 +2,7 @@ import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { getDataClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import Link from "next/link";
-import { hasReportingPortalRole } from "@/lib/pp/auth";
+import { canAccessPpTeamLeaveRequests, hasReportingPortalRole } from "@/lib/pp/auth";
 
 export default async function PostProcessorDashboardPage() {
   const userClient = await createServerSupabaseClient();
@@ -18,6 +18,7 @@ export default async function PostProcessorDashboardPage() {
 
   const { data: portalRoles } = await supabase.from("employee_roles").select("role").eq("employee_id", me.id);
   if (!hasReportingPortalRole(portalRoles ?? [])) redirect("/dashboard");
+  const showTeamLeaveLink = canAccessPpTeamLeaveRequests(portalRoles ?? []);
 
   const { data: teams } = await supabase
     .from("teams")
@@ -120,12 +121,14 @@ export default async function PostProcessorDashboardPage() {
           matches teams the same way as in Admin. Tools follow the DT; Driver/Rigger shows SIMs and vehicles only.
         </p>
         <div className="mt-4 flex flex-wrap gap-3">
-          <Link
-            href="/dashboard/pp/leaves"
-            className="rounded-lg border border-teal-300 bg-white px-4 py-2 text-sm font-medium text-teal-900 hover:bg-teal-50"
-          >
-            Team leave requests
-          </Link>
+          {showTeamLeaveLink ? (
+            <Link
+              href="/dashboard/pp/leaves"
+              className="rounded-lg border border-teal-300 bg-white px-4 py-2 text-sm font-medium text-teal-900 hover:bg-teal-50"
+            >
+              Team leave requests
+            </Link>
+          ) : null}
           <Link href="/dashboard/pp/teams" className="text-sm font-medium text-teal-800 underline hover:text-teal-950">
             Alternate team view →
           </Link>

@@ -18,6 +18,14 @@ export function hasReportingPortalRole(roles: { role: string }[] | null | undefi
   return (roles ?? []).some((r) => r.role === "PP" || r.role === "Reporting Team");
 }
 
+/**
+ * Team-wide leave queue (`/dashboard/pp/leaves`) is for **PP** (post processor) only.
+ * **Reporting Team** without PP uses `/leave` for their own requests only.
+ */
+export function canAccessPpTeamLeaveRequests(roles: { role: string }[] | null | undefined): boolean {
+  return (roles ?? []).some((r) => r.role === "PP");
+}
+
 /** Resolve reporting workspace (PP or Reporting Team) from session. */
 export async function getPostProcessorContext(): Promise<PpSessionContext | null> {
   const userClient = await createServerSupabaseClient();

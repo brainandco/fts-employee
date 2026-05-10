@@ -1,7 +1,7 @@
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { getDataClient } from "@/lib/supabase/server";
 import Link from "next/link";
-import { hasReportingPortalRole } from "@/lib/pp/auth";
+import { canAccessPpTeamLeaveRequests, hasReportingPortalRole } from "@/lib/pp/auth";
 import { AssignedAssetsList } from "@/components/assets/AssignedAssetsList";
 import { ReturnVehicleButton } from "@/components/returns/ReturnVehicleButton";
 import { ReturnSimButton } from "@/components/returns/ReturnSimButton";
@@ -39,6 +39,7 @@ export default async function DashboardPage() {
   const isQc = (myRoles ?? []).some((r) => r.role === "QC");
   const isPm = (myRoles ?? []).some((r) => r.role === "Project Manager");
   const isPp = hasReportingPortalRole(myRoles ?? []);
+  const showPpTeamLeaveLink = canAccessPpTeamLeaveRequests(myRoles ?? []);
   const isProjectCoordinator = (myRoles ?? []).some((r) => r.role === "Project Coordinator");
   const isDriverOrSelfDt = (myRoles ?? []).some((r) => r.role === "Driver/Rigger" || r.role === "Self DT");
 
@@ -237,19 +238,23 @@ export default async function DashboardPage() {
         <section className="rounded-2xl border border-teal-200 bg-gradient-to-r from-teal-50 to-cyan-50 p-5 sm:p-6">
           <h2 className="text-lg font-semibold text-zinc-900">Reporting — teams</h2>
           <p className="mt-1 text-sm text-zinc-600">
-            Open teams for member tools, SIMs, vehicles, and leave requests. Reporting staff normally see every team; you
-            can still be set explicitly as Post Processor on a roster in Admin.
+            Open teams for member tools, SIMs, and vehicles.
+            {showPpTeamLeaveLink
+              ? " Post processors can also open team leave requests; Reporting Team uses Leave for their own requests only."
+              : " Use Leave in the sidebar for your own leave requests."}
           </p>
           <div className="mt-4 flex flex-wrap gap-3">
             <Link href="/dashboard/pp" className="rounded bg-teal-800 px-4 py-2 text-sm font-medium text-white hover:bg-teal-900">
               Open teams overview
             </Link>
-            <Link
-              href="/dashboard/pp/leaves"
-              className="rounded border border-teal-300 bg-white px-4 py-2 text-sm font-medium text-teal-900 hover:bg-teal-50"
-            >
-              Team leave requests
-            </Link>
+            {showPpTeamLeaveLink ? (
+              <Link
+                href="/dashboard/pp/leaves"
+                className="rounded border border-teal-300 bg-white px-4 py-2 text-sm font-medium text-teal-900 hover:bg-teal-50"
+              >
+                Team leave requests
+              </Link>
+            ) : null}
           </div>
         </section>
       )}
