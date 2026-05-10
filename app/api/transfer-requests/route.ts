@@ -30,6 +30,8 @@ export async function GET() {
     roleSet.has("DT") ||
     roleSet.has("Junior DT") ||
     roleSet.has("Driver/Rigger") ||
+    roleSet.has("PP") ||
+    roleSet.has("Reporting Team") ||
     isSelfDt;
   const canReview = roleSet.has("QC") || roleSet.has("Project Manager");
   const isPm = roleSet.has("Project Manager");
@@ -91,10 +93,21 @@ export async function POST(req: Request) {
   const roleSet = new Set((roles ?? []).map((r) => r.role));
   const isSelfDt = roleSet.has("Self DT");
   const isJuniorDt = roleSet.has("Junior DT");
-  const isDtClassForAssetTransfer = roleSet.has("DT") || isJuniorDt || isSelfDt;
+  const isDtClassForAssetTransfer =
+    roleSet.has("DT") ||
+    isJuniorDt ||
+    isSelfDt ||
+    roleSet.has("PP") ||
+    roleSet.has("Reporting Team");
   const isDriver = roleSet.has("Driver/Rigger") || isSelfDt;
   if (!isDtClassForAssetTransfer && !isDriver) {
-    return NextResponse.json({ message: "Only DT, Junior DT, Driver/Rigger, or Self DT can create transfer requests" }, { status: 403 });
+    return NextResponse.json(
+      {
+        message:
+          "Only DT, Junior DT, PP, Reporting Team, Driver/Rigger, or Self DT can create transfer requests",
+      },
+      { status: 403 }
+    );
   }
 
   let target_employee_id: string | null = null;
@@ -165,7 +178,13 @@ export async function POST(req: Request) {
 
   if (request_type === "asset_transfer") {
     if (!isDtClassForAssetTransfer) {
-      return NextResponse.json({ message: "Only DT, Junior DT, or Self DT can request asset transfer" }, { status: 400 });
+      return NextResponse.json(
+        {
+          message:
+            "Only DT, Junior DT, PP, Reporting Team, or Self DT can request asset transfer",
+        },
+        { status: 400 }
+      );
     }
     if (!assetIdInput || !targetEmployeeIdInput) {
       return NextResponse.json({ message: "Asset and target DT are required" }, { status: 400 });

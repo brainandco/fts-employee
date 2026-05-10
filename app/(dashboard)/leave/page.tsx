@@ -12,6 +12,7 @@ type LeavePayload = {
   guarantor_display_name?: string;
   guarantor_job_title?: string;
   filled_performa_pdf_url?: string;
+  admin_leave_request?: boolean;
 };
 
 function statusBadgeClass(status: string): string {
@@ -50,10 +51,10 @@ export default async function LeavePage() {
       <div className="rounded-2xl border border-violet-200 bg-gradient-to-r from-violet-50 to-fuchsia-50 p-5 sm:p-6">
         <h1 className="text-2xl font-semibold tracking-tight text-zinc-900">Leave</h1>
         <p className="mt-1 text-zinc-600">
-          Apply with an eligible guarantor and a leave type: most staff choose someone in the same region; Project Managers
-          choose a portal Administrator or Super User account (not necessarily an employee record); portal Administrators
-          choose an employee who has the Project Manager role (no region restriction for those two cases). An admin reviews
-          first and sends a filled performa PDF; after you sign and upload it, a super user gives final approval.
+          Choose a leave type and submit. Most employees add a guarantor from the same region; Project Managers choose a
+          portal Administrator or Super User as guarantor. If you are a portal Administrator or Super User, no guarantor is
+          required — your request goes straight to a Super User for approval (no performa). Everyone else: an admin reviews
+          first and sends a filled performa PDF; after you sign and upload it, a Super User gives final approval.
         </p>
       </div>
 
@@ -103,7 +104,11 @@ export default async function LeavePage() {
                     </p>
                   ) : null}
                   {a.status === "Submitted" ? (
-                    <p className="mt-2 text-xs text-zinc-500">Waiting for admin review.</p>
+                    <p className="mt-2 text-xs text-zinc-500">
+                      {payload.admin_leave_request
+                        ? "Waiting for Super User approval."
+                        : "Waiting for admin review."}
+                    </p>
                   ) : null}
                   {(a.admin_comment || a.pm_comment) && (
                     <p className="mt-2 text-sm text-zinc-500">

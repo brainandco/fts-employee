@@ -30,7 +30,7 @@ async function regionAndProjectNames(
 
 /**
  * POST /api/leave — submit a leave request (creates an approval with type leave_request).
- * Guarantor: same-region employee; PM employee → portal admin user; portal admin → PM employee.
+ * Guarantor: same-region employee; PM → portal admin user; portal Administrator/Super User → none (Super-only approval).
  */
 export async function POST(req: Request) {
   const userClient = await createServerSupabaseClient();
@@ -93,8 +93,43 @@ export async function POST(req: Request) {
     requesterRoles.trim() || (employee.job_title ?? employee.department ?? "").trim();
 
   let payload_json: Record<string, unknown>;
+  let notifySupersOnly = false;
 
-  if (guarantorMode === "pm_picks_admin") {
+  if (guarantorMode === "admin_no_guarantor") {
+    if (guarantor_employee_id || guarantor_user_id) {
+      return NextResponse.json({ message: "Guarantor is not used for administrator leave." }, { status: 400 });
+    }
+    const total_days = inclusiveCalendarDays(from_date, to_date);
+    notifySupersOnly = true;
+    const portalRoleLine = (await getPortalRolesDisplay(supabase, session.user.id)).trim();
+    const requester_title_admin =
+      [requesterRoles.trim(), portalRoleLine].filter(Boolean).join(" · ") ||
+      requester_job_title_for_performa;
+    payload_json = {
+      admin_leave_request: true,
+      from_date,
+      to_date,
+      reason,
+      leave_type,
+      requester_employee_id: employee.id,
+      requester_name: employee.full_name ?? null,
+      requester_display_name: (employee.full_name ?? "").trim(),
+      requester_iqama: (employee.iqama_number ?? "").trim(),
+      requester_job_title: requester_title_admin,
+      requester_region_name: reqRp.region_name,
+      requester_project_name: reqRp.project_name,
+      guarantor_employee_id: null,
+      guarantor_user_id: null,
+      guarantor_display_name: "",
+      guarantor_iqama: "",
+      guarantor_phone: "",
+      guarantor_email: "",
+      guarantor_job_title: "",
+      guarantor_region_name: "",
+      guarantor_project_name: "",
+      leave_total_days_snapshot: total_days,
+    };
+  } else if (guarantorMode === "pm_picks_admin") {
     if (!guarantor_user_id) {
       return NextResponse.json({ message: "Guarantor is required (select a portal Administrator)." }, { status: 400 });
     }
@@ -213,21 +248,44 @@ export async function POST(req: Request) {
     return NextResponse.json({ message: error.message }, { status: 400 });
   }
 
-  const { data: adminProfiles } = await supabase
-    .from("users_profile")
-    .select("id")
-    .eq("status", "ACTIVE")
-    .eq("is_super_user", false);
-  const notifications = (adminProfiles ?? []).map((p) => ({
-    recipient_user_id: p.id,
-    title: "New leave request submitted",
-    body: "A leave request needs admin review and remarks.",
-    category: "leave_request",
-    link: `/approvals/${approval.id}`,
-    meta: { approval_id: approval.id, from_date, to_date },
-  }));
-  if (notifications.length > 0) {
-    await supabase.from("notifications").insert(notifications);
+  const displayName = (employee.full_name ?? "").trim() || email;
+
+  if (notifySupersOnly) {
+    const { data: supers } = await supabase
+      .from("users_profile")
+      .select("id")
+      .eq("status", "ACTIVE")
+      .eq("is_super_user", true);
+    const superRows = (supers ?? [])
+      .filter((p) => p.id !== session.user.id)
+      .map((p) => ({
+        recipient_user_id: p.id,
+        title: "Leave request pending (Super User)",
+        body: `${displayName} submitted a leave request (administrator — Super User approval required).`,
+        category: "leave_request",
+        link: `/approvals/${approval.id}`,
+        meta: { approval_id: approval.id, from_date, to_date, admin_leave: true },
+      }));
+    if (superRows.length > 0) {
+      await supabase.from("notifications").insert(superRows);
+    }
+  } else {
+    const { data: adminProfiles } = await supabase
+      .from("users_profile")
+      .select("id")
+      .eq("status", "ACTIVE")
+      .eq("is_super_user", false);
+    const notifications = (adminProfiles ?? []).map((p) => ({
+      recipient_user_id: p.id,
+      title: "New leave request submitted",
+      body: "A leave request needs admin review and remarks.",
+      category: "leave_request",
+      link: `/approvals/${approval.id}`,
+      meta: { approval_id: approval.id, from_date, to_date },
+    }));
+    if (notifications.length > 0) {
+      await supabase.from("notifications").insert(notifications);
+    }
   }
 
   return NextResponse.json({ id: approval.id, message: "Leave request submitted" });

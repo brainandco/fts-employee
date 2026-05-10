@@ -5,7 +5,7 @@ export const ADMINISTRATOR_ROLE_ID = "a0000000-0000-0000-0000-000000000001";
 /** Seed role UUID — `roles.name = 'Super User'`. */
 export const SUPER_ROLE_ID = "a0000000-0000-0000-0000-000000000000";
 
-export type LeaveGuarantorPickerMode = "same_region" | "pm_picks_admin" | "admin_picks_pm";
+export type LeaveGuarantorPickerMode = "same_region" | "pm_picks_admin" | "admin_no_guarantor";
 
 async function collectAdministratorPortalUserIds(supabase: SupabaseClient): Promise<Set<string>> {
   const adminUserIds = new Set<string>();
@@ -22,8 +22,8 @@ async function collectAdministratorPortalUserIds(supabase: SupabaseClient): Prom
 }
 
 /**
- * PM ↔ Administrator guarantor routing only. Everyone else uses same-region guarantors.
- * If the user is both Administrator (portal) and PM (employee), Administrator rule wins.
+ * Portal Administrator / Super User: no guarantor — leave goes Super-only (`admin_leave_request` payload).
+ * PM employees: choose a portal admin user as guarantor. Everyone else: same-region employee guarantor.
  */
 export async function resolveLeaveGuarantorPickerMode(
   supabase: SupabaseClient,
@@ -31,7 +31,7 @@ export async function resolveLeaveGuarantorPickerMode(
   applicantEmployeeId: string
 ): Promise<LeaveGuarantorPickerMode> {
   const adminPortalUser = await isAdministratorPortalUser(supabase, authUserId);
-  if (adminPortalUser) return "admin_picks_pm";
+  if (adminPortalUser) return "admin_no_guarantor";
 
   const isPm = await employeeHasRole(supabase, applicantEmployeeId, "Project Manager");
   if (isPm) return "pm_picks_admin";
@@ -63,28 +63,6 @@ export async function employeeHasRole(supabase: SupabaseClient, employeeId: stri
     .eq("role", role)
     .maybeSingle();
   return !!data;
-}
-
-/** Active employees with Project Manager role (any region). Excludes applicant. */
-export async function fetchActiveProjectManagerEmployees(
-  supabase: SupabaseClient,
-  excludeEmployeeId: string
-): Promise<{ id: string; full_name: string | null; job_title: string | null; department: string | null }[]> {
-  const { data: roleRows } = await supabase
-    .from("employee_roles")
-    .select("employee_id")
-    .eq("role", "Project Manager");
-  const ids = [...new Set((roleRows ?? []).map((r) => r.employee_id as string).filter(Boolean))].filter(
-    (id) => id !== excludeEmployeeId
-  );
-  if (ids.length === 0) return [];
-  const { data: rows } = await supabase
-    .from("employees")
-    .select("id, full_name, job_title, department")
-    .in("id", ids)
-    .eq("status", "ACTIVE")
-    .order("full_name");
-  return (rows ?? []) as { id: string; full_name: string | null; job_title: string | null; department: string | null }[];
 }
 
 export type PortalAdminGuarantorRow = {
@@ -197,12 +175,6 @@ export async function assertGuarantorAllowedForMode(
     if (applicant.region_id !== guFull?.region_id) {
       return { ok: false, message: "Guarantor must be in the same region as you" };
     }
-    return { ok: true };
-  }
-
-  if (mode === "admin_picks_pm") {
-    const ok = await employeeHasRole(supabase, guarantorEmployeeId, "Project Manager");
-    if (!ok) return { ok: false, message: "Guarantor must be an active Project Manager." };
     return { ok: true };
   }
 

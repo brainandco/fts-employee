@@ -84,7 +84,9 @@ export default async function DashboardLayout({
       roleSet.has("DT") ||
       roleSet.has("Junior DT") ||
       roleSet.has("Driver/Rigger") ||
-      roleSet.has("Self DT");
+      roleSet.has("Self DT") ||
+      roleSet.has("PP") ||
+      roleSet.has("Reporting Team");
   }
 
   const displayName = employee?.full_name ?? userProfile?.full_name ?? email;
@@ -119,21 +121,7 @@ export default async function DashboardLayout({
   }
 
   let navSections: EmployeeNavSection[] = [];
-  if (!isAdminView && employee && isPp) {
-    navSections = [
-      {
-        label: "Files",
-        items: [{ href: "/dashboard/pp-workspace", label: "Files workspace" }],
-      },
-      {
-        label: "Account",
-        items: [
-          { href: "/leave", label: "Leave" },
-          { href: "/settings/profile", label: "Profile settings" },
-        ],
-      },
-    ];
-  } else if (isAdminView) {
+  if (isAdminView) {
     navSections = [
       {
         label: "Admin",
@@ -186,6 +174,13 @@ export default async function DashboardLayout({
       });
     }
     const workspaceItems: { href: string; label: string }[] = [];
+    if (isPp) {
+      workspaceItems.push(
+        { href: "/dashboard/pp-workspace", label: "Files workspace" },
+        { href: "/dashboard/pp", label: "Reporting teams" },
+        { href: "/dashboard/pp/leaves", label: "Team leave requests" }
+      );
+    }
     if (showTransferRequestsNav) {
       workspaceItems.push({ href: "/dashboard/transfer-requests", label: "Transfer requests" });
     }

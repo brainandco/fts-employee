@@ -1,6 +1,5 @@
 import { createServerSupabaseClient, getDataClient } from "@/lib/supabase/server";
 import {
-  fetchActiveProjectManagerEmployees,
   fetchAdministratorPortalUsersForPmGuarantor,
   resolveLeaveGuarantorPickerMode,
   type LeaveGuarantorPickerMode,
@@ -47,7 +46,7 @@ async function loadRolesForEmployeeIds(
   return rolesByEmpList;
 }
 
-/** Guarantors for leave: same-region employees, PM → portal admins (users), portal admin → PM employees. */
+/** Guarantors for leave: same-region employees, or PM → portal admins. Portal admins skip guarantor (mode admin_no_guarantor). */
 export async function GET() {
   const userClient = await createServerSupabaseClient();
   const {
@@ -83,14 +82,12 @@ export async function GET() {
     });
   }
 
-  if (mode === "admin_picks_pm") {
-    const rows = await fetchActiveProjectManagerEmployees(supabase, me.id);
-    const ids = rows.map((r) => r.id);
-    const rolesByEmpList = await loadRolesForEmployeeIds(supabase, ids);
+  if (mode === "admin_no_guarantor") {
     return NextResponse.json({
       mode,
+      requires_guarantor: false as const,
       guarantor_id_kind: "employee" as const,
-      employees: employeeRowsWithRoles(rows, rolesByEmpList),
+      employees: [],
     });
   }
 
