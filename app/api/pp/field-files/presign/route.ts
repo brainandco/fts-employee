@@ -60,7 +60,7 @@ export async function POST(req: Request) {
   const contentType = String(body.contentType ?? "application/octet-stream").trim() || "application/octet-stream";
   const byteSize = typeof body.byteSize === "number" && Number.isFinite(body.byteSize) ? Math.floor(body.byteSize) : null;
   const maxB = getWasabiEmployeeFileMaxBytes();
-  if (byteSize != null && byteSize > maxB) {
+  if (maxB > 0 && byteSize != null && byteSize > maxB) {
     return NextResponse.json({ message: `File exceeds maximum size (${maxB} bytes)` }, { status: 400 });
   }
 

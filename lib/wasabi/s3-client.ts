@@ -60,10 +60,16 @@ export function getWasabiEmployeeFilesKeyPrefix(): string {
   return "employee-files";
 }
 
+/**
+ * Optional presign-time max size (bytes) for employee / PP Wasabi uploads.
+ * Unset, empty, or `"0"` = no application cap (browser still uses one PUT; S3-compatible stores typically allow up to ~5 GiB per single PUT).
+ * Set a positive integer to enforce a maximum (e.g. `1073741824` for 1 GiB).
+ */
 export function getWasabiEmployeeFileMaxBytes(): number {
-  const raw = process.env.WASABI_EMPLOYEE_FILE_MAX_BYTES;
-  if (raw && /^\d+$/.test(raw.trim())) return parseInt(raw.trim(), 10);
-  return 100 * 1024 * 1024;
+  const raw = process.env.WASABI_EMPLOYEE_FILE_MAX_BYTES?.trim();
+  if (!raw || raw === "0") return 0;
+  if (/^\d+$/.test(raw)) return parseInt(raw, 10);
+  return 0;
 }
 
 /** Separate bucket for PP final reports (`WASABI_PP_REPORTS_BUCKET`). Optional dedicated credentials via WASABI_PP_REPORTS_* access vars. */

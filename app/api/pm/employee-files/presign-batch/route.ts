@@ -115,7 +115,7 @@ export async function POST(req: Request) {
     }
     const contentType = String(it.contentType ?? "application/octet-stream").trim() || "application/octet-stream";
     const byteSize = typeof it.byteSize === "number" && Number.isFinite(it.byteSize) ? Math.floor(it.byteSize) : null;
-    if (byteSize != null && byteSize > maxB) {
+    if (maxB > 0 && byteSize != null && byteSize > maxB) {
       return NextResponse.json({ message: `Row ${i + 1}: exceeds maximum size (${maxB} bytes)` }, { status: 400 });
     }
     const itemRelRaw = it.relativePath;
