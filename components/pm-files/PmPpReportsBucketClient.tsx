@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { EMPLOYEE_UPLOAD_ALLOWED_EXTENSIONS_HELP } from "@/lib/employee-files/storage";
+import { browserUploadPpReportMultipart, fileRequiresMultipartUpload } from "@/lib/wasabi/browser-multipart-upload";
 
 const API = "/api/pm/pp-reports";
 
@@ -171,6 +172,15 @@ export function PmPpReportsBucketClient({ configured }: { configured: boolean })
     setMsg("");
     try {
       for (const file of Array.from(fl)) {
+        if (fileRequiresMultipartUpload(file.size)) {
+          await browserUploadPpReportMultipart({
+            apiBase: API,
+            file,
+            defaultRelativePath: null,
+            relativePath: browsePath.trim() || null,
+          });
+          continue;
+        }
         const pres = await fetch(`${API}/presign`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
