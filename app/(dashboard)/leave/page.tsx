@@ -9,8 +9,6 @@ type LeavePayload = {
   reason?: string;
   leave_type?: string;
   requester_job_title?: string;
-  guarantor_display_name?: string;
-  guarantor_job_title?: string;
   filled_performa_pdf_url?: string;
   admin_leave_request?: boolean;
 };
@@ -51,10 +49,11 @@ export default async function LeavePage() {
       <div className="rounded-2xl border border-violet-200 bg-gradient-to-r from-violet-50 to-fuchsia-50 p-5 sm:p-6">
         <h1 className="text-2xl font-semibold tracking-tight text-zinc-900">Leave</h1>
         <p className="mt-1 text-zinc-600">
-          Choose a leave type and submit. Most employees add a guarantor from the same region; Project Managers choose a
-          portal Administrator or Super User as guarantor. If you are a portal Administrator or Super User, no guarantor is
-          required — your request goes straight to a Super User for approval (no performa). Everyone else: an admin reviews
-          first and sends a filled performa PDF; after you sign and upload it, a Super User gives final approval.
+          Choose dates and leave type, then submit. There is no guarantor. If you hold assigned assets or SIM cards, you
+          must return them before applying for any leave except a <strong>single calendar day</strong> of{" "}
+          <strong>Sick</strong> or <strong>Casual</strong>. Portal Administrators and Super Users: your request goes to a
+          Super User for approval (no performa). Everyone else: an admin reviews first and may send a filled performa PDF;
+          after you sign and upload it, a Super User gives final approval.
         </p>
       </div>
 
@@ -87,12 +86,6 @@ export default async function LeavePage() {
                   ) : null}
                   {payload.requester_job_title ? (
                     <p className="mt-0.5 text-sm text-zinc-600">Your role(s): {payload.requester_job_title}</p>
-                  ) : null}
-                  {payload.guarantor_display_name ? (
-                    <p className="mt-0.5 text-sm text-zinc-600">Guarantor: {payload.guarantor_display_name}</p>
-                  ) : null}
-                  {payload.guarantor_job_title ? (
-                    <p className="mt-0.5 text-sm text-zinc-600">Guarantor role(s): {payload.guarantor_job_title}</p>
                   ) : null}
                   {payload.reason ? <p className="mt-1 text-sm text-zinc-600">Reason: {payload.reason}</p> : null}
                   {a.status === "Awaiting_Signed_Performa" && pdfUrl ? (

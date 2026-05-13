@@ -43,14 +43,28 @@ async function getPortalContext() {
   };
 }
 
-/** PATCH: update display name and (for employees) phone and accommodations. */
+/** PATCH: admin view only — update display name on users_profile. Employees use a change request instead. */
 export async function PATCH(request: NextRequest) {
   const ctx = await getPortalContext();
   if (ctx.error || !ctx.session) {
     return NextResponse.json({ error: ctx.error ?? "Unauthorized" }, { status: 401 });
   }
 
-  let body: { full_name?: unknown; phone?: unknown; accommodations?: unknown };
+  if (ctx.isEmployee && ctx.employeeId) {
+    return NextResponse.json(
+      {
+        error:
+          "Name, phone, and other profile details are updated by your administrator. Use Profile settings → Request a change to send them the new values.",
+      },
+      { status: 403 }
+    );
+  }
+
+  if (!ctx.isAdminView) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
+  let body: { full_name?: unknown };
   try {
     body = await request.json();
   } catch {
@@ -59,29 +73,12 @@ export async function PATCH(request: NextRequest) {
 
   const full_name =
     typeof body.full_name === "string" ? body.full_name.trim() || null : null;
-  const phone = typeof body.phone === "string" ? body.phone.trim() || null : null;
-  const accommodations =
-    typeof body.accommodations === "string" ? body.accommodations.trim() || null : null;
 
   const client = ctx.dataClient;
-
-  if (ctx.isAdminView) {
-    const { error } = await client
-      .from("users_profile")
-      .update({ full_name })
-      .eq("id", ctx.session.user.id);
-    if (error) return NextResponse.json({ error: error.message }, { status: 400 });
-    return NextResponse.json({ ok: true });
-  }
-
-  if (ctx.isEmployee && ctx.employeeId) {
-    const { error } = await client
-      .from("employees")
-      .update({ full_name: full_name ?? "", phone: phone ?? "", accommodations: accommodations ?? "" })
-      .eq("id", ctx.employeeId);
-    if (error) return NextResponse.json({ error: error.message }, { status: 400 });
-    return NextResponse.json({ ok: true });
-  }
-
-  return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  const { error } = await client
+    .from("users_profile")
+    .update({ full_name })
+    .eq("id", ctx.session.user.id);
+  if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+  return NextResponse.json({ ok: true });
 }

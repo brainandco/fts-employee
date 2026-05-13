@@ -91,8 +91,10 @@ export async function POST(request: NextRequest) {
     const { error } = await client.from("users_profile").update({ avatar_url: url }).eq("id", uid);
     if (error) return NextResponse.json({ error: error.message }, { status: 400 });
   } else if (mode.isEmployee && mode.employeeId) {
-    const { error } = await client.from("employees").update({ avatar_url: url }).eq("id", mode.employeeId);
-    if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+    return NextResponse.json(
+      { error: "Profile photo changes are managed by your administrator." },
+      { status: 403 }
+    );
   } else {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
@@ -117,8 +119,10 @@ export async function DELETE() {
     const { error } = await client.from("users_profile").update({ avatar_url: null }).eq("id", uid);
     if (error) return NextResponse.json({ error: error.message }, { status: 400 });
   } else if (mode.isEmployee && mode.employeeId) {
-    const { error } = await client.from("employees").update({ avatar_url: null }).eq("id", mode.employeeId);
-    if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+    return NextResponse.json(
+      { error: "Profile photo changes are managed by your administrator." },
+      { status: 403 }
+    );
   } else {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
