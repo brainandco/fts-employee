@@ -169,11 +169,18 @@ export function PpReportsClient({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ path: folderPath }),
       });
-      const data = (await res.json().catch(() => ({}))) as { message?: string; url?: string };
+      const data = (await res.json().catch(() => ({}))) as {
+        message?: string;
+        url?: string;
+        folderLabel?: string;
+        zipFileName?: string;
+      };
       if (!res.ok) throw new Error(data.message || "Could not create link");
       if (!data.url) throw new Error("Bad response");
       await navigator.clipboard.writeText(data.url);
-      setMsg("Download link copied. Recipients can open it in a browser to download the zip (no portal login).");
+      setMsg(
+        `Download link copied. The URL includes “${data.folderLabel ?? "folder"}” so you can find it in chat search; download opens as ${data.zipFileName ?? "folder.zip"} (no portal login).`
+      );
     } catch (e) {
       setError(e instanceof Error ? e.message : "Copy failed");
     }

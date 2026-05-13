@@ -1,5 +1,8 @@
+import { PassThrough, Readable } from "node:stream";
 import { normalizeRelativePathUnderEmployee } from "@/lib/employee-files/storage";
 import {
+  appendSiteFolderObjectsToArchive,
+  createZipArchiver,
   dedupeAncestorFolderPaths,
   MAX_FOLDERS_PER_MULTI_ZIP,
 } from "@/lib/employee-files/site-folder-zip";
@@ -102,4 +105,46 @@ export function getS3ForPpReportsZip() {
     s3: getWasabiPpReportsS3Client(),
     bucket: getWasabiPpReportsBucket()!,
   };
+}
+
+function safeZipFileBase(name: string): string {
+  const t = name.replace(/[^\w.\-()+ @&$=!*,?:;]/g, "_").slice(0, 120);
+  return t || "folder";
+}
+
+/** Stream a single PP-reports folder as application/zip (public short-link and signed routes). */
+export function buildPpReportsZipStreamingResponse(folder: ResolvedPpReportsZipFolder): Response {
+  const { s3, bucket } = getS3ForPpReportsZip();
+  const pass = new PassThrough();
+  const archive = createZipArchiver();
+  archive.on("error", (err: Error) => {
+    pass.destroy(err);
+  });
+  archive.pipe(pass);
+
+  const base = safeZipFileBase(folder.zipRootFolderName.split("/").pop() ?? "folder");
+  const disp = `attachment; filename="${base}.zip"; filename*=UTF-8''${encodeURIComponent(`${base}.zip`)}`;
+
+  void (async () => {
+    try {
+      await appendSiteFolderObjectsToArchive(s3, bucket, folder.s3Prefix, folder.zipRootFolderName, archive);
+      await archive.finalize();
+    } catch (e) {
+      try {
+        archive.abort();
+      } catch {
+        /* ignore */
+      }
+      pass.destroy(e instanceof Error ? e : new Error("Zip failed"));
+    }
+  })();
+
+  const webBody = Readable.toWeb(pass) as unknown as BodyInit;
+  return new Response(webBody, {
+    headers: {
+      "Content-Type": "application/zip",
+      "Content-Disposition": disp,
+      "Cache-Control": "no-store",
+    },
+  });
 }
