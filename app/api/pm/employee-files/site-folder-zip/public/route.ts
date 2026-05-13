@@ -1,20 +1,9 @@
-import { PassThrough, Readable } from "node:stream";
-import {
-  appendSiteFolderObjectsToArchive,
-  createZipArchiver,
-  getS3ForSiteZip,
-  resolveSiteFolderZipContext,
-} from "@/lib/employee-files/site-folder-zip";
+import { resolveSiteFolderZipContext, buildSiteFolderZipStreamingResponse } from "@/lib/employee-files/site-folder-zip";
 import { parseSiteZipToken } from "@/lib/employee-files/site-zip-token";
 
 export const runtime = "nodejs";
 
-function safeZipFileBase(name: string): string {
-  const t = name.replace(/[^\w.\-()+ @&$=!*,?:;]/g, "_").slice(0, 120);
-  return t || "site";
-}
-
-/** Signed link: anyone with the URL can download the zip (no portal login). */
+/** Legacy signed link: `?t=...`. New links use `/public/{folder}?c=...`. */
 export async function GET(req: Request) {
   const url = new URL(req.url);
   const token = String(url.searchParams.get("t") ?? "").trim();
@@ -41,37 +30,5 @@ export async function GET(req: Request) {
     });
   }
 
-  const { s3, bucket } = getS3ForSiteZip();
-  const pass = new PassThrough();
-  const archive = createZipArchiver();
-  archive.on("error", (err: Error) => {
-    pass.destroy(err);
-  });
-  archive.pipe(pass);
-
-  const base = safeZipFileBase(resolved.archiveFolderName);
-  const disp = `attachment; filename="${base}.zip"; filename*=UTF-8''${encodeURIComponent(`${base}.zip`)}`;
-
-  void (async () => {
-    try {
-      await appendSiteFolderObjectsToArchive(s3, bucket, resolved.sitePrefix, resolved.archiveFolderName, archive);
-      await archive.finalize();
-    } catch (e) {
-      try {
-        archive.abort();
-      } catch {
-        /* ignore */
-      }
-      pass.destroy(e instanceof Error ? e : new Error("Zip failed"));
-    }
-  })();
-
-  const webBody = Readable.toWeb(pass) as unknown as BodyInit;
-  return new Response(webBody, {
-    headers: {
-      "Content-Type": "application/zip",
-      "Content-Disposition": disp,
-      "Cache-Control": "no-store",
-    },
-  });
+  return buildSiteFolderZipStreamingResponse(resolved);
 }

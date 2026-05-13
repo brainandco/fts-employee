@@ -1,5 +1,5 @@
 import { resolveSiteFolderZipContext } from "@/lib/employee-files/site-folder-zip";
-import { mintSiteZipToken, siteZipLinkSecretConfigured } from "@/lib/employee-files/site-zip-token";
+import { folderLabelFromNormalizedSitePath, mintSiteZipToken, siteZipLinkSecretConfigured } from "@/lib/employee-files/site-zip-token";
 import {
   assertPmRegion,
   requirePmEmployeeFilesAccess,
@@ -62,7 +62,9 @@ export async function POST(req: Request) {
 
   const self = new URL(req.url);
   const origin = self.origin;
-  const publicUrl = `${origin}/api/pm/employee-files/site-folder-zip/public?t=${encodeURIComponent(token)}`;
+  const label = folderLabelFromNormalizedSitePath(resolved.normalizedSitePath);
+  const enc = encodeURIComponent(label);
+  const publicUrl = `${origin}/api/pm/employee-files/site-folder-zip/public/${enc}?c=${encodeURIComponent(token)}`;
 
   return NextResponse.json({
     url: publicUrl,

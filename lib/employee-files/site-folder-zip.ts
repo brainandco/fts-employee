@@ -1,7 +1,7 @@
 import { GetObjectCommand, type S3Client } from "@aws-sdk/client-s3";
 import type { Archiver } from "archiver";
 import archiver from "archiver";
-import { Readable } from "node:stream";
+import { PassThrough, Readable } from "node:stream";
 import { getDataClient } from "@/lib/supabase/server";
 import { listAllObjectKeysUnderPrefix } from "@/lib/employee-files/s3-browse";
 import {
@@ -159,4 +159,46 @@ export function getS3ForSiteZip() {
     s3: getWasabiEmployeeFilesS3Client(),
     bucket: getWasabiEmployeeFilesBucket(),
   };
+}
+
+function safeZipFileBaseForZipDownload(name: string): string {
+  const t = name.replace(/[^\w.\-()+ @&$=!*,?:;]/g, "_").slice(0, 120);
+  return t || "site";
+}
+
+/** Streaming ZIP for one resolved site folder (used by public download routes). */
+export async function buildSiteFolderZipStreamingResponse(resolved: Extract<ResolvedSiteZip, { ok: true }>): Promise<Response> {
+  const { s3, bucket } = getS3ForSiteZip();
+  const pass = new PassThrough();
+  const archive = createZipArchiver();
+  archive.on("error", (err: Error) => {
+    pass.destroy(err);
+  });
+  archive.pipe(pass);
+
+  const base = safeZipFileBaseForZipDownload(resolved.archiveFolderName);
+  const disp = `attachment; filename="${base}.zip"; filename*=UTF-8''${encodeURIComponent(`${base}.zip`)}`;
+
+  void (async () => {
+    try {
+      await appendSiteFolderObjectsToArchive(s3, bucket, resolved.sitePrefix, resolved.archiveFolderName, archive);
+      await archive.finalize();
+    } catch (e) {
+      try {
+        archive.abort();
+      } catch {
+        /* ignore */
+      }
+      pass.destroy(e instanceof Error ? e : new Error("Zip failed"));
+    }
+  })();
+
+  const webBody = Readable.toWeb(pass) as unknown as BodyInit;
+  return new Response(webBody, {
+    headers: {
+      "Content-Type": "application/zip",
+      "Content-Disposition": disp,
+      "Cache-Control": "no-store",
+    },
+  });
 }
