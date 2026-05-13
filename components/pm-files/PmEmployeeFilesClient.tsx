@@ -604,11 +604,18 @@ export function PmEmployeeFilesClient({ initialFolders }: { initialFolders: PmEm
           sitePath: siteFolderPath,
         }),
       });
-      const data = (await res.json().catch(() => ({}))) as { message?: string; url?: string };
+      const data = (await res.json().catch(() => ({}))) as {
+        message?: string;
+        url?: string;
+        folderLabel?: string;
+        zipFileName?: string;
+      };
       if (!res.ok) throw new Error(data.message || "Could not create link");
       if (!data.url) throw new Error("Bad response");
       await navigator.clipboard.writeText(data.url);
-      setMessage("Download link copied. Recipients can open it in a browser to download the zip (no portal login).");
+      setMessage(
+        `Download link copied. The URL includes “${data.folderLabel ?? "folder"}” so you can find it in chat search; download opens as ${data.zipFileName ?? "folder.zip"} (no portal login).`
+      );
     } catch (e) {
       setError(e instanceof Error ? e.message : "Copy failed");
     }
