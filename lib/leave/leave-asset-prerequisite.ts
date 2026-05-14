@@ -1,6 +1,20 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { inclusiveCalendarDays } from "@/lib/employee-requests/leave-metrics";
 
+/** API + client use this to show the asset-prerequisite education modal instead of a raw error line. */
+export const LEAVE_ASSIGNED_ITEMS_NOT_RETURNED = "LEAVE_ASSIGNED_ITEMS_NOT_RETURNED" as const;
+
+export type AssignedItemsPrerequisiteResult =
+  | { ok: true }
+  | { ok: false; message: string }
+  | {
+      ok: false;
+      code: typeof LEAVE_ASSIGNED_ITEMS_NOT_RETURNED;
+      message: string;
+      assetCount: number;
+      simCount: number;
+    };
+
 /** One calendar day of Sick or Casual does not require returning assets first. */
 const ONE_DAY_ASSET_EXEMPT = new Set(["sick", "casual"]);
 
@@ -20,7 +34,7 @@ export async function assertAssignedAssetsReturnedIfRequired(
   leaveType: string,
   fromIso: string,
   toIso: string
-): Promise<{ ok: true } | { ok: false; message: string }> {
+): Promise<AssignedItemsPrerequisiteResult> {
   if (isOneDaySickOrCasualLeave(leaveType, fromIso, toIso)) {
     return { ok: true };
   }
@@ -48,8 +62,11 @@ export async function assertAssignedAssetsReturnedIfRequired(
   if (simCount) parts.push(`${simCount} SIM card${simCount === 1 ? "" : "s"}`);
   return {
     ok: false,
+    code: LEAVE_ASSIGNED_ITEMS_NOT_RETURNED,
     message: `Return all assigned ${parts.join(
       " and "
     )} before applying for this leave (single-day Sick or Casual only are exempt). Use asset returns in the portal or contact your administrator.`,
+    assetCount,
+    simCount,
   };
 }

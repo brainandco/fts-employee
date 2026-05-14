@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { LEAVE_ASSIGNED_ITEMS_NOT_RETURNED } from "@/lib/leave/leave-asset-prerequisite";
+import { LeaveAssetPrerequisiteModal } from "@/components/leave/LeaveAssetPrerequisiteModal";
 
 const LEAVE_TYPES = [
   "Annual",
@@ -23,10 +25,16 @@ export function LeaveRequestForm() {
   const [leaveType, setLeaveType] = useState<string>(LEAVE_TYPES[0]);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const [assignedItemsModal, setAssignedItemsModal] = useState<{
+    open: boolean;
+    assetCount: number;
+    simCount: number;
+  }>({ open: false, assetCount: 0, simCount: 0 });
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setMessage(null);
+    setAssignedItemsModal({ open: false, assetCount: 0, simCount: 0 });
     if (!fromDate || !toDate) {
       setMessage({ type: "error", text: "From date and to date are required." });
       return;
@@ -54,6 +62,14 @@ export function LeaveRequestForm() {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
+        if (data.code === LEAVE_ASSIGNED_ITEMS_NOT_RETURNED) {
+          setAssignedItemsModal({
+            open: true,
+            assetCount: Number(data.asset_count) || 0,
+            simCount: Number(data.sim_count) || 0,
+          });
+          return;
+        }
         setMessage({ type: "error", text: data.message ?? "Failed to submit" });
         return;
       }
@@ -69,6 +85,13 @@ export function LeaveRequestForm() {
   }
 
   return (
+    <>
+      <LeaveAssetPrerequisiteModal
+        open={assignedItemsModal.open}
+        onClose={() => setAssignedItemsModal((s) => ({ ...s, open: false }))}
+        assetCount={assignedItemsModal.assetCount}
+        simCount={assignedItemsModal.simCount}
+      />
     <form onSubmit={submit} className="mt-4 max-w-md space-y-4">
       <div className="rounded-lg border border-amber-100 bg-amber-50/90 px-3 py-2 text-sm text-amber-950">
         <strong>Assets:</strong> except for a <strong>single-day Sick or Casual</strong> request, you must return all
@@ -144,5 +167,6 @@ export function LeaveRequestForm() {
         {loading ? "Submitting…" : "Submit leave request"}
       </button>
     </form>
+    </>
   );
 }

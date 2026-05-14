@@ -27,7 +27,7 @@ export async function POST(req: Request) {
 
   const supabase = await getDataClient();
   const email = (session.user.email ?? "").trim().toLowerCase();
-  const { data: employee } = await supabase.from("employees").select("id, region_id, full_name").eq("email", email).maybeSingle();
+  const { data: employee } = await supabase.from("employees").select("id, region_id, full_name, project_id").eq("email", email).maybeSingle();
   if (!employee) return NextResponse.json({ message: "Employee not found" }, { status: 403 });
 
   const { data: roleRows } = await supabase.from("employee_roles").select("role").eq("employee_id", employee.id);
@@ -74,18 +74,23 @@ export async function POST(req: Request) {
 
   await deleteReceiptForResource(supabase, "vehicle", vehicleId);
 
-  if (employee.region_id) {
-    await notifyPmAndQcInRegion(supabase, employee.region_id, {
-      title: "Vehicle returned by driver",
-      body: `${employee.full_name ?? "Driver"} returned a vehicle. Comment: ${employee_comment.slice(0, 280)}${employee_comment.length > 280 ? "…" : ""}`,
-      category: "vehicle_return",
-      link: "/dashboard/vehicles/assign",
-      linkByRole: {
-        pm: "/dashboard/vehicles/assign",
-        qc: "/dashboard/region-employees-assets",
+  if (employee.region_id && employee.project_id) {
+    await notifyPmAndQcInRegion(
+      supabase,
+      employee.region_id,
+      {
+        title: "Vehicle returned by driver",
+        body: `${employee.full_name ?? "Driver"} returned a vehicle. Comment: ${employee_comment.slice(0, 280)}${employee_comment.length > 280 ? "…" : ""}`,
+        category: "vehicle_return",
+        link: "/dashboard/vehicles/assign",
+        linkByRole: {
+          pm: "/dashboard/vehicles/assign",
+          qc: "/dashboard/region-employees-assets",
+        },
+        meta: { vehicle_id: vehicleId, employee_id: employee.id },
       },
-      meta: { vehicle_id: vehicleId, employee_id: employee.id },
-    });
+      { projectId: employee.project_id }
+    );
   }
 
   return NextResponse.json({ ok: true });

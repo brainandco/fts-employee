@@ -1,5 +1,6 @@
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { getDataClient } from "@/lib/supabase/server";
+import { collectSuperUserRecipientUserIds } from "@/lib/notify-super-users";
 import { NextResponse } from "next/server";
 
 /** PM requests new assets from admin. */
@@ -60,13 +61,9 @@ export async function POST(req: Request) {
 
   if (error) return NextResponse.json({ message: error.message }, { status: 400 });
 
-  const { data: adminProfiles } = await supabase
-    .from("users_profile")
-    .select("id")
-    .eq("status", "ACTIVE")
-    .eq("is_super_user", false);
-  const notifications = (adminProfiles ?? []).map((p) => ({
-    recipient_user_id: p.id,
+  const superIds = await collectSuperUserRecipientUserIds(supabase, { excludeUserId: session.user.id });
+  const notifications = superIds.map((id) => ({
+    recipient_user_id: id,
     title: "New PM asset request",
     body: `${asset_name} (${quantity}) requested by PM for admin review.`,
     category: "asset_request",

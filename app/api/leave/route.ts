@@ -2,8 +2,12 @@ import { createServerSupabaseClient, getDataClient } from "@/lib/supabase/server
 import { NextResponse } from "next/server";
 import { inclusiveCalendarDays } from "@/lib/employee-requests/leave-metrics";
 import { getEmployeeRolesDisplay, getPortalRolesDisplay } from "@/lib/employee-roles-display";
-import { assertAssignedAssetsReturnedIfRequired } from "@/lib/leave/leave-asset-prerequisite";
+import {
+  assertAssignedAssetsReturnedIfRequired,
+  LEAVE_ASSIGNED_ITEMS_NOT_RETURNED,
+} from "@/lib/leave/leave-asset-prerequisite";
 import { isAdministratorPortalUser } from "@/lib/leave/portal-admin-leave";
+import { collectSuperUserRecipientUserIds } from "@/lib/notify-super-users";
 
 async function regionAndProjectNames(
   supabase: Awaited<ReturnType<typeof getDataClient>>,
@@ -86,6 +90,17 @@ export async function POST(req: Request) {
   if (!adminPortalUser) {
     const assetOk = await assertAssignedAssetsReturnedIfRequired(supabase, employee.id, leave_type, from_date, to_date);
     if (!assetOk.ok) {
+      if ("code" in assetOk && assetOk.code === LEAVE_ASSIGNED_ITEMS_NOT_RETURNED) {
+        return NextResponse.json(
+          {
+            code: assetOk.code,
+            message: assetOk.message,
+            asset_count: assetOk.assetCount,
+            sim_count: assetOk.simCount,
+          },
+          { status: 400 }
+        );
+      }
       return NextResponse.json({ message: assetOk.message }, { status: 400 });
     }
   }
@@ -172,42 +187,52 @@ export async function POST(req: Request) {
 
   const displayName = (employee.full_name ?? "").trim() || email;
 
+  const rows: {
+    recipient_user_id: string;
+    title: string;
+    body: string;
+    category: string;
+    link: string;
+    meta: Record<string, unknown>;
+  }[] = [];
+
+  rows.push({
+    recipient_user_id: session.user.id,
+    title: "Leave request submitted",
+    body: "Your leave request was submitted and is pending review. You will be notified when it is updated.",
+    category: "leave_request",
+    link: "/leave",
+    meta: { approval_id: approval.id, from_date, to_date, self_submitted: true },
+  });
+
   if (notifySupersOnly) {
-    const { data: supers } = await supabase
-      .from("users_profile")
-      .select("id")
-      .eq("status", "ACTIVE")
-      .eq("is_super_user", true);
-    const superRows = (supers ?? [])
-      .filter((p) => p.id !== session.user.id)
-      .map((p) => ({
-        recipient_user_id: p.id,
+    const superIds = await collectSuperUserRecipientUserIds(supabase, { excludeUserId: session.user.id });
+    for (const sid of superIds) {
+      rows.push({
+        recipient_user_id: sid,
         title: "Leave request pending (Super User)",
         body: `${displayName} submitted a leave request (administrator — Super User approval required).`,
         category: "leave_request",
         link: `/approvals/${approval.id}`,
         meta: { approval_id: approval.id, from_date, to_date, admin_leave: true },
-      }));
-    if (superRows.length > 0) {
-      await supabase.from("notifications").insert(superRows);
+      });
     }
   } else {
-    const { data: adminProfiles } = await supabase
-      .from("users_profile")
-      .select("id")
-      .eq("status", "ACTIVE")
-      .eq("is_super_user", false);
-    const notifications = (adminProfiles ?? []).map((p) => ({
-      recipient_user_id: p.id,
-      title: "New leave request submitted",
-      body: "A leave request needs admin review and remarks.",
-      category: "leave_request",
-      link: `/approvals/${approval.id}`,
-      meta: { approval_id: approval.id, from_date, to_date },
-    }));
-    if (notifications.length > 0) {
-      await supabase.from("notifications").insert(notifications);
+    const superIds = await collectSuperUserRecipientUserIds(supabase, { excludeUserId: session.user.id });
+    for (const sid of superIds) {
+      rows.push({
+        recipient_user_id: sid,
+        title: "New leave request submitted",
+        body: `${displayName} submitted a leave request that needs admin review in the Admin Portal.`,
+        category: "leave_request",
+        link: `/approvals/${approval.id}`,
+        meta: { approval_id: approval.id, from_date, to_date },
+      });
     }
+  }
+
+  if (rows.length > 0) {
+    await supabase.from("notifications").insert(rows);
   }
 
   return NextResponse.json({ id: approval.id, message: "Leave request submitted" });

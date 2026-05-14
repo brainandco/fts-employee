@@ -4,6 +4,7 @@ import { getDataClient } from "@/lib/supabase/server";
 import { NextResponse } from "next/server";
 import { createServerSupabaseAdmin } from "@/lib/supabase/admin";
 import { uploadResourcePhotosBuffer } from "@/lib/supabase/upload-resource-photos";
+import { collectSuperUserRecipientUserIds } from "@/lib/notify-super-users";
 
 const MAX_BYTES = 15 * 1024 * 1024;
 
@@ -69,13 +70,9 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     .eq("id", id);
   if (updErr) return NextResponse.json({ message: updErr.message }, { status: 400 });
 
-  const { data: supers } = await dataClient
-    .from("users_profile")
-    .select("id")
-    .eq("status", "ACTIVE")
-    .eq("is_super_user", true);
-  const rows = (supers ?? []).map((u) => ({
-    recipient_user_id: u.id,
+  const superIds = await collectSuperUserRecipientUserIds(dataClient);
+  const rows = superIds.map((uid) => ({
+    recipient_user_id: uid,
     title: "Leave performa submitted",
     body: "A requester uploaded a signed leave performa. Final approval is required.",
     category: "leave_request",

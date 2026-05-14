@@ -24,7 +24,7 @@ export async function POST(req: Request) {
 
   const supabase = await getDataClient();
   const email = (session.user.email ?? "").trim().toLowerCase();
-  const { data: employee } = await supabase.from("employees").select("id, region_id, full_name").eq("email", email).maybeSingle();
+  const { data: employee } = await supabase.from("employees").select("id, region_id, full_name, project_id").eq("email", email).maybeSingle();
   if (!employee) return NextResponse.json({ message: "Employee not found" }, { status: 403 });
 
   const { data: sim } = await supabase
@@ -71,18 +71,23 @@ export async function POST(req: Request) {
     await supabase.from("sim_assignment_history").update({ unassigned_at: now }).eq("id", histRow.id);
   }
 
-  if (employee.region_id) {
-    await notifyPmAndQcInRegion(supabase, employee.region_id, {
-      title: "SIM returned by employee",
-      body: `${employee.full_name ?? "Employee"} returned SIM ${sim.sim_number ?? sim_id}. Comment: ${employee_comment.slice(0, 240)}${employee_comment.length > 240 ? "…" : ""}`,
-      category: "sim_return",
-      link: "/dashboard/sims/assign",
-      linkByRole: {
-        pm: "/dashboard/sims/assign",
-        qc: "/dashboard/region-employees-assets",
+  if (employee.region_id && employee.project_id) {
+    await notifyPmAndQcInRegion(
+      supabase,
+      employee.region_id,
+      {
+        title: "SIM returned by employee",
+        body: `${employee.full_name ?? "Employee"} returned SIM ${sim.sim_number ?? sim_id}. Comment: ${employee_comment.slice(0, 240)}${employee_comment.length > 240 ? "…" : ""}`,
+        category: "sim_return",
+        link: "/dashboard/sims/assign",
+        linkByRole: {
+          pm: "/dashboard/sims/assign",
+          qc: "/dashboard/region-employees-assets",
+        },
+        meta: { sim_id, employee_id: employee.id },
       },
-      meta: { sim_id, employee_id: employee.id },
-    });
+      { projectId: employee.project_id }
+    );
   }
 
   return NextResponse.json({ ok: true });

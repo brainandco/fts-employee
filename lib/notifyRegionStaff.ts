@@ -28,45 +28,104 @@ function resolveNotifyLink(
   return payload.link ?? null;
 }
 
+export type PmQcNotifyContext = {
+  /** Only users tied to this project (PM on project, PM assignments, QCs in region for this project) are notified. */
+  projectId: string;
+};
+
 /**
- * Notify all PMs and QCs in a region (by users_profile id).
+ * Notifies only staff **involved with the given project** — never every PM/QC in the region.
+ * - Project portal PM (`projects.pm_user_id`)
+ * - PM employees on `pm_employee_projects` or with primary `employees.project_id`
+ * - QC employees in `regionId` whose `project_id` is null or matches `projectId`
+ *
+ * If `context` is missing or has no `projectId`, **no rows are inserted** (avoid unrelated employees).
  */
 export async function notifyPmAndQcInRegion(
   supabase: SupabaseClient,
   regionId: string,
-  payload: NotifyPayload
+  payload: NotifyPayload,
+  context?: PmQcNotifyContext
 ): Promise<void> {
-  const { data: pmRows } = await supabase
-    .from("employee_roles")
-    .select("employee_id")
-    .eq("role", "Project Manager");
-  const { data: qcRows } = await supabase
-    .from("employee_roles")
-    .select("employee_id")
-    .eq("role", "QC");
+  const projectId = context?.projectId?.trim();
+  if (!projectId) return;
 
-  const pmIds = new Set((pmRows ?? []).map((r) => r.employee_id));
-  const qcIds = new Set((qcRows ?? []).map((r) => r.employee_id));
-  const staffIds = [...new Set([...pmIds, ...qcIds])];
-  if (staffIds.length === 0) return;
-
-  const { data: staffEmps } = await supabase
-    .from("employees")
-    .select("id, email")
-    .in("id", staffIds)
-    .eq("region_id", regionId);
-
-  const emails = (staffEmps ?? []).map((e) => e.email).filter(Boolean) as string[];
-  if (emails.length === 0) return;
+  const { data: pmRoleRows } = await supabase.from("employee_roles").select("employee_id").eq("role", "Project Manager");
+  const { data: qcRoleRows } = await supabase.from("employee_roles").select("employee_id").eq("role", "QC");
+  const pmIds = new Set((pmRoleRows ?? []).map((r) => r.employee_id));
+  const qcIds = new Set((qcRoleRows ?? []).map((r) => r.employee_id));
 
   const emailToEmpId = new Map<string, string>();
-  for (const e of staffEmps ?? []) {
-    const em = (e.email ?? "").trim().toLowerCase();
-    if (em) emailToEmpId.set(em, e.id);
+  const recipientUserIds = new Set<string>();
+
+  const { data: proj } = await supabase.from("projects").select("pm_user_id").eq("id", projectId).maybeSingle();
+  const pmAuthId = proj?.pm_user_id as string | undefined;
+  if (pmAuthId) {
+    const { data: pu } = await supabase
+      .from("users_profile")
+      .select("id")
+      .eq("id", pmAuthId)
+      .eq("status", "ACTIVE")
+      .maybeSingle();
+    if (pu?.id) recipientUserIds.add(pu.id);
   }
 
-  const { data: profiles } = await supabase.from("users_profile").select("id, email").in("email", emails);
-  const notifications = (profiles ?? []).map((p) => ({
+  const { data: junctionRows } = await supabase.from("pm_employee_projects").select("employee_id").eq("project_id", projectId);
+  const junctionPmIds = [...new Set((junctionRows ?? []).map((r) => r.employee_id))].filter((id) => pmIds.has(id));
+
+  const pmIdList = [...pmIds];
+  const { data: pmPrimaryRows } = pmIdList.length
+    ? await supabase.from("employees").select("id, email").eq("project_id", projectId).in("id", pmIdList)
+    : { data: [] };
+
+  const pmEmpById = new Map<string, { id: string; email: string | null }>();
+  for (const r of pmPrimaryRows ?? []) {
+    if (r.id) pmEmpById.set(r.id, r);
+  }
+  if (junctionPmIds.length) {
+    const { data: jEmps } = await supabase.from("employees").select("id, email").in("id", junctionPmIds);
+    for (const r of jEmps ?? []) {
+      if (r.id && !pmEmpById.has(r.id)) pmEmpById.set(r.id, r);
+    }
+  }
+  for (const row of pmEmpById.values()) {
+    const em = (row.email ?? "").trim().toLowerCase();
+    if (em) emailToEmpId.set(em, row.id);
+  }
+
+  const qcIdList = [...qcIds];
+  const { data: qcEmps } = qcIdList.length
+    ? await supabase.from("employees").select("id, email, project_id").in("id", qcIdList).eq("region_id", regionId)
+    : { data: [] };
+
+  for (const row of qcEmps ?? []) {
+    if (row.project_id && row.project_id !== projectId) continue;
+    const em = (row.email ?? "").trim().toLowerCase();
+    if (em) emailToEmpId.set(em, row.id);
+  }
+
+  const emails = [...emailToEmpId.keys()];
+  if (emails.length) {
+    const { data: profiles } = await supabase
+      .from("users_profile")
+      .select("id, email")
+      .in("email", emails)
+      .eq("status", "ACTIVE")
+      .eq("employee_portal_only", true);
+    for (const p of profiles ?? []) {
+      if (p.id) recipientUserIds.add(p.id);
+    }
+  }
+
+  if (recipientUserIds.size === 0) return;
+
+  const { data: recipientProfiles } = await supabase
+    .from("users_profile")
+    .select("id, email")
+    .in("id", [...recipientUserIds])
+    .eq("status", "ACTIVE");
+
+  const notifications = (recipientProfiles ?? []).map((p) => ({
     recipient_user_id: p.id,
     title: payload.title,
     body: payload.body,
@@ -74,6 +133,7 @@ export async function notifyPmAndQcInRegion(
     link: resolveNotifyLink(p.email, emailToEmpId, pmIds, qcIds, payload),
     meta: (payload.meta ?? {}) as object,
   }));
+
   if (notifications.length > 0) {
     await supabase.from("notifications").insert(notifications);
   }

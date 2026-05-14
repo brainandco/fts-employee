@@ -1,5 +1,6 @@
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { getDataClient } from "@/lib/supabase/server";
+import { notifyPmAndQcInRegion } from "@/lib/notifyRegionStaff";
 import { loadPmScopeIds } from "@/lib/pm-team-assignees";
 import { hasMinimumPhotos, parseImageUrlArray } from "@/lib/resource-photos";
 import { NextResponse } from "next/server";
@@ -86,8 +87,14 @@ export async function POST(req: Request) {
 
   const supabase = await getDataClient();
   const email = (session.user.email ?? "").trim().toLowerCase();
-  const { data: employee } = await supabase.from("employees").select("id, region_id, full_name").eq("email", email).maybeSingle();
+  const { data: employee } = await supabase
+    .from("employees")
+    .select("id, region_id, full_name, project_id")
+    .eq("email", email)
+    .maybeSingle();
   if (!employee?.region_id) return NextResponse.json({ message: "Employee or region not found" }, { status: 403 });
+
+  let staffNotifyProjectId: string | null = employee.project_id ?? null;
 
   const { data: roles } = await supabase.from("employee_roles").select("role").eq("employee_id", employee.id);
   const roleSet = new Set((roles ?? []).map((r) => r.role));
@@ -155,10 +162,11 @@ export async function POST(req: Request) {
 
     const { data: ownTeam } = await supabase
       .from("teams")
-      .select("id, region_id, driver_rigger_employee_id")
+      .select("id, region_id, driver_rigger_employee_id, project_id")
       .eq("driver_rigger_employee_id", employee.id)
       .maybeSingle();
     if (!ownTeam) return NextResponse.json({ message: "Your team record was not found" }, { status: 400 });
+    if (ownTeam.project_id) staffNotifyProjectId = ownTeam.project_id;
 
     const { data: targetTeam } = await supabase
       .from("teams")
@@ -240,31 +248,58 @@ export async function POST(req: Request) {
 
   if (error) return NextResponse.json({ message: error.message }, { status: 400 });
 
-  const { data: reviewers } = await supabase
-    .from("employee_roles")
-    .select("employee_id, role")
-    .in("role", ["QC", "Project Manager"]);
-  const reviewerEmployeeIds = [...new Set((reviewers ?? []).map((r) => r.employee_id))];
-  const { data: reviewerEmployees } = reviewerEmployeeIds.length
-    ? await supabase.from("employees").select("id, email, region_id").in("id", reviewerEmployeeIds)
-    : { data: [] };
-  const reviewerEmails = (reviewerEmployees ?? [])
-    .filter((e) => e.region_id === employee.region_id)
-    .map((e) => e.email)
-    .filter(Boolean);
-  const { data: reviewerUsers } = reviewerEmails.length
-    ? await supabase.from("users_profile").select("id").in("email", reviewerEmails)
-    : { data: [] };
   const detailLink = `/employee-requests/transfers/${inserted.id}`;
-  const notificationRows = (reviewerUsers ?? []).map((u) => ({
-    recipient_user_id: u.id,
-    title: "New transfer request",
-    body: `${employee.full_name} submitted ${request_type.replaceAll("_", " ")} request.`,
+
+  await supabase.from("notifications").insert({
+    recipient_user_id: session.user.id,
+    title: "Transfer request submitted",
+    body: `Your ${request_type.replaceAll("_", " ")} request was submitted. Track it under Employee requests.`,
     category: "transfer_request",
     link: detailLink,
-    meta: { transfer_request_id: inserted.id, request_type },
-  }));
-  if (notificationRows.length) await supabase.from("notifications").insert(notificationRows);
+    meta: { transfer_request_id: inserted.id, request_type, self_submitted: true },
+  });
+
+  if (employee.region_id && staffNotifyProjectId) {
+    await notifyPmAndQcInRegion(
+      supabase,
+      employee.region_id,
+      {
+        title: "New transfer request",
+        body: `${employee.full_name} submitted a ${request_type.replaceAll("_", " ")} request for your project.`,
+        category: "transfer_request",
+        link: detailLink,
+        meta: { transfer_request_id: inserted.id, request_type },
+      },
+      { projectId: staffNotifyProjectId }
+    );
+  }
+
+  if (target_employee_id) {
+    const { data: targetEmp } = await supabase
+      .from("employees")
+      .select("email, full_name")
+      .eq("id", target_employee_id)
+      .maybeSingle();
+    const te = (targetEmp?.email ?? "").trim().toLowerCase();
+    if (te) {
+      const { data: targetUser } = await supabase
+        .from("users_profile")
+        .select("id")
+        .eq("email", te)
+        .eq("status", "ACTIVE")
+        .maybeSingle();
+      if (targetUser?.id && targetUser.id !== session.user.id) {
+        await supabase.from("notifications").insert({
+          recipient_user_id: targetUser.id,
+          title: "You are named in a transfer request",
+          body: `${employee.full_name} submitted a ${request_type.replaceAll("_", " ")} request that involves you. Open it for details.`,
+          category: "transfer_request",
+          link: detailLink,
+          meta: { transfer_request_id: inserted.id, request_type, target_employee_id },
+        });
+      }
+    }
+  }
 
   return NextResponse.json({ id: inserted.id, message: "Transfer request submitted" });
 }

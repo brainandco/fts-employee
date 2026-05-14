@@ -28,7 +28,7 @@ export async function POST(req: Request) {
 
   const supabase = await getDataClient();
   const email = (session.user.email ?? "").trim().toLowerCase();
-  const { data: employee } = await supabase.from("employees").select("id, region_id").eq("email", email).maybeSingle();
+  const { data: employee } = await supabase.from("employees").select("id, region_id, project_id").eq("email", email).maybeSingle();
   if (!employee) return NextResponse.json({ message: "Employee not found" }, { status: 403 });
 
   const { data: asset, error: aErr } = await supabase
@@ -88,14 +88,19 @@ export async function POST(req: Request) {
 
   await deleteReceiptForResource(supabase, "asset", assetId);
 
-  if (region_id) {
-    await notifyPmAndQcInRegion(supabase, region_id, {
-      title: "Asset return pending review",
-      body: "An employee has returned an asset. Please review in Asset return queue (PM) and confirm handover with QC as needed.",
-      category: "asset_return",
-      link: "/dashboard/asset-returns",
-      meta: { asset_id: assetId, from_employee_id: employee.id },
-    });
+  if (region_id && employee.project_id) {
+    await notifyPmAndQcInRegion(
+      supabase,
+      region_id,
+      {
+        title: "Asset return pending review",
+        body: "An employee has returned an asset. Please review in Asset return queue (PM) and confirm handover with QC as needed.",
+        category: "asset_return",
+        link: "/dashboard/asset-returns",
+        meta: { asset_id: assetId, from_employee_id: employee.id },
+      },
+      { projectId: employee.project_id }
+    );
   }
 
   return NextResponse.json({ ok: true });
