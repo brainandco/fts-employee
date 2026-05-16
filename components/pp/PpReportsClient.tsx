@@ -5,6 +5,13 @@ import { PpFieldUploadModal, type UploadModalRow } from "@/components/pp/PpField
 import { EMPLOYEE_UPLOAD_ALLOWED_EXTENSIONS_HELP } from "@/lib/employee-files/storage";
 import { filterEmployeeUploadItems, type SkippedUpload } from "@/lib/employee-files/upload-filter";
 import { ppReportsUploadFilesBatch, type PpReportsUploadItem } from "@/lib/pp/pp-reports-batch-upload";
+import {
+  nextPpReportHierarchyLevel,
+  ppReportPathSegments,
+  type PpReportAccountRow,
+  type PpReportOperatorRow,
+  type PpReportProjectRow,
+} from "@/lib/pp-reports/folder-hierarchy";
 
 type BrowseFolder = { type: "folder"; name: string; path: string };
 type BrowseFile = {
@@ -107,7 +114,11 @@ export function PpReportsClient({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [msg, setMsg] = useState("");
-  const [newFolderName, setNewFolderName] = useState("");
+  const [hierarchyLoading, setHierarchyLoading] = useState(false);
+  const [operators, setOperators] = useState<PpReportOperatorRow[]>([]);
+  const [accounts, setAccounts] = useState<PpReportAccountRow[]>([]);
+  const [projects, setProjects] = useState<PpReportProjectRow[]>([]);
+  const [selectedFolderSegment, setSelectedFolderSegment] = useState("");
   const [uploadBusy, setUploadBusy] = useState(false);
   const [uploadSession, setUploadSession] = useState<UploadSessionState | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -140,13 +151,66 @@ export function PpReportsClient({
     }
   }, [browsePath, configured]);
 
+  const loadHierarchy = useCallback(async () => {
+    if (!configured) return;
+    setHierarchyLoading(true);
+    try {
+      const res = await fetch("/api/pp/reports/hierarchy");
+      const data = (await res.json().catch(() => ({}))) as {
+        message?: string;
+        operators?: PpReportOperatorRow[];
+        accounts?: PpReportAccountRow[];
+        projects?: PpReportProjectRow[];
+      };
+      if (!res.ok) throw new Error(data.message || "Failed to load folder options");
+      setOperators(data.operators ?? []);
+      setAccounts(data.accounts ?? []);
+      setProjects(data.projects ?? []);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to load folder options");
+    } finally {
+      setHierarchyLoading(false);
+    }
+  }, [configured]);
+
   useEffect(() => {
     void loadBrowse();
   }, [loadBrowse]);
 
   useEffect(() => {
+    void loadHierarchy();
+  }, [loadHierarchy]);
+
+  useEffect(() => {
     setSelectedZipPaths([]);
+    setSelectedFolderSegment("");
   }, [browsePath]);
+
+  const hierarchyLevel = nextPpReportHierarchyLevel(browsePath);
+  const pathSegments = ppReportPathSegments(browsePath);
+  const currentOperatorName = pathSegments[0] ?? "";
+
+  const folderOptions: { value: string; label: string }[] = (() => {
+    if (!hierarchyLevel) return [];
+    if (hierarchyLevel === "operator") {
+      return operators.map((o) => ({ value: o.name, label: o.name }));
+    }
+    if (hierarchyLevel === "account") {
+      return accounts.map((a) => ({ value: a.name, label: a.name }));
+    }
+    return projects
+      .filter((p) => (p.operator_name ?? "") === currentOperatorName)
+      .map((p) => ({ value: p.name, label: p.name }));
+  })();
+
+  const folderSelectLabel =
+    hierarchyLevel === "operator"
+      ? "Operator"
+      : hierarchyLevel === "account"
+        ? "Account"
+        : hierarchyLevel === "project"
+          ? "Project"
+          : null;
 
   function toggleZipFolderSelection(folderPath: string) {
     setSelectedZipPaths((prev) =>
@@ -225,10 +289,10 @@ export function PpReportsClient({
     }
   }
 
-  async function createProjectFolder() {
-    const name = newFolderName.trim().replace(/[^\w.\-()+ @&$=!*,?:;/]/g, "_").slice(0, 120);
+  async function createHierarchyFolder() {
+    const name = selectedFolderSegment.trim();
     if (!name) {
-      setError("Enter a project folder name.");
+      setError(`Select ${folderSelectLabel ?? "a folder"} from the list.`);
       return;
     }
     const relativePath = browsePath ? `${browsePath}/${name}` : name;
@@ -243,8 +307,8 @@ export function PpReportsClient({
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error((data as { message?: string }).message || "Create failed");
-      setMsg(`Folder “${name}” created under your personal folder.`);
-      setNewFolderName("");
+      setMsg(`Folder “${name}” created.`);
+      setSelectedFolderSegment("");
       await loadBrowse();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Create failed");
@@ -437,8 +501,9 @@ export function PpReportsClient({
 
       <div className="rounded-xl border border-zinc-200 bg-white p-4">
         <p className="text-sm text-zinc-700">
-          Upload finished reports under <strong>project</strong> folders. Your files are stored under a folder named for you
-          (same idea as field employees); you only pick the project folder name — not your own name folder.
+          Upload finished reports under a fixed folder path: <strong>Operator</strong> → <strong>Account</strong> →{" "}
+          <strong>Project</strong>. Your personal folder is created automatically; choose each level from the dropdowns
+          below (custom names are not allowed).
         </p>
         <p className="mt-2 rounded-md border border-zinc-200 bg-zinc-50 px-3 py-2 text-[11px] text-zinc-700">
           Allowed types: {EMPLOYEE_UPLOAD_ALLOWED_EXTENSIONS_HELP}
@@ -462,22 +527,41 @@ export function PpReportsClient({
         </nav>
 
         <div className="mt-3 flex flex-wrap items-end gap-2">
-          <input
-            type="text"
-            value={newFolderName}
-            onChange={(e) => setNewFolderName(e.target.value)}
-            placeholder="New project folder name"
-            disabled={uploadBusy || !!uploadSession}
-            className="min-w-[200px] flex-1 rounded-lg border border-zinc-300 px-3 py-2 text-sm"
-          />
-          <button
-            type="button"
-            onClick={() => void createProjectFolder()}
-            disabled={uploadBusy || !!uploadSession}
-            className="rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
-          >
-            Create folder
-          </button>
+          {hierarchyLevel ? (
+            <>
+              <label className="flex min-w-[200px] flex-1 flex-col gap-1 text-xs font-medium text-zinc-600">
+                {folderSelectLabel}
+                <select
+                  value={selectedFolderSegment}
+                  onChange={(e) => setSelectedFolderSegment(e.target.value)}
+                  disabled={uploadBusy || !!uploadSession || hierarchyLoading}
+                  className="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900"
+                >
+                  <option value="">
+                    {hierarchyLoading ? "Loading…" : `Select ${folderSelectLabel?.toLowerCase() ?? "folder"}`}
+                  </option>
+                  {folderOptions.map((opt) => (
+                    <option key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <button
+                type="button"
+                onClick={() => void createHierarchyFolder()}
+                disabled={uploadBusy || !!uploadSession || hierarchyLoading || !selectedFolderSegment}
+                className="rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+              >
+                Create {folderSelectLabel?.toLowerCase()} folder
+              </button>
+            </>
+          ) : (
+            <p className="text-sm text-zinc-600">
+              You are inside a project folder. Upload files here, or go up to create folders at operator, account, or
+              project level.
+            </p>
+          )}
           <input
             ref={fileInputRef}
             type="file"
@@ -625,7 +709,7 @@ export function PpReportsClient({
                 {folders.length === 0 && files.length === 0 ? (
                   <tr>
                     <td colSpan={4} className="px-3 py-8 text-center text-zinc-500">
-                      Empty. Create a project folder or upload files.
+                      Empty. Create operator, account, and project folders using the dropdowns above, then upload files.
                     </td>
                   </tr>
                 ) : null}
