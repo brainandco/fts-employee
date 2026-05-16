@@ -130,12 +130,13 @@ export function PpReportsClient({
   const [selectedZipPaths, setSelectedZipPaths] = useState<string[]>([]);
   const [zipBulkBusy, setZipBulkBusy] = useState(false);
 
-  const loadBrowse = useCallback(async () => {
+  const loadBrowse = useCallback(async (pathOverride?: string) => {
     if (!configured) return;
+    const pathAt = pathOverride !== undefined ? pathOverride : browsePath;
     setLoading(true);
     setError("");
     try {
-      const q = browsePath ? `?path=${encodeURIComponent(browsePath)}` : "";
+      const q = pathAt ? `?path=${encodeURIComponent(pathAt)}` : "";
       const res = await fetch(`/api/pp/reports/browse${q}`);
       const data = (await res.json().catch(() => ({}))) as { message?: string };
       if (!res.ok) {
@@ -319,9 +320,15 @@ export function PpReportsClient({
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error((data as { message?: string }).message || "Create failed");
-      setMsg(`Folder “${name}” created.`);
+      const createdPath = relativePath;
+      setBrowsePath(createdPath);
       setSelectedFolderSegment("");
-      await loadBrowse();
+      setMsg(
+        nextPpReportHierarchyLevel(createdPath)
+          ? `“${name}” created. Choose the next level below.`
+          : `“${name}” created. You can upload files here.`
+      );
+      await loadBrowse(createdPath);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Create failed");
     } finally {
