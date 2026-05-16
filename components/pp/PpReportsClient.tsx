@@ -11,6 +11,7 @@ import {
   type PpReportAccountRow,
   type PpReportOperatorRow,
   type PpReportProjectRow,
+  type PpReportRegionRow,
 } from "@/lib/pp-reports/folder-hierarchy";
 
 type BrowseFolder = { type: "folder"; name: string; path: string };
@@ -115,6 +116,7 @@ export function PpReportsClient({
   const [error, setError] = useState("");
   const [msg, setMsg] = useState("");
   const [hierarchyLoading, setHierarchyLoading] = useState(false);
+  const [regions, setRegions] = useState<PpReportRegionRow[]>([]);
   const [operators, setOperators] = useState<PpReportOperatorRow[]>([]);
   const [accounts, setAccounts] = useState<PpReportAccountRow[]>([]);
   const [projects, setProjects] = useState<PpReportProjectRow[]>([]);
@@ -158,11 +160,13 @@ export function PpReportsClient({
       const res = await fetch("/api/pp/reports/hierarchy");
       const data = (await res.json().catch(() => ({}))) as {
         message?: string;
+        regions?: PpReportRegionRow[];
         operators?: PpReportOperatorRow[];
         accounts?: PpReportAccountRow[];
         projects?: PpReportProjectRow[];
       };
       if (!res.ok) throw new Error(data.message || "Failed to load folder options");
+      setRegions(data.regions ?? []);
       setOperators(data.operators ?? []);
       setAccounts(data.accounts ?? []);
       setProjects(data.projects ?? []);
@@ -188,10 +192,16 @@ export function PpReportsClient({
 
   const hierarchyLevel = nextPpReportHierarchyLevel(browsePath);
   const pathSegments = ppReportPathSegments(browsePath);
-  const currentOperatorName = pathSegments[0] ?? "";
+  const currentOperatorName = pathSegments[1] ?? "";
 
   const folderOptions: { value: string; label: string }[] = (() => {
     if (!hierarchyLevel) return [];
+    if (hierarchyLevel === "region") {
+      return regions.map((r) => ({
+        value: r.folder_name,
+        label: r.code ? `${r.name} (${r.code})` : r.name,
+      }));
+    }
     if (hierarchyLevel === "operator") {
       return operators.map((o) => ({ value: o.name, label: o.name }));
     }
@@ -204,13 +214,15 @@ export function PpReportsClient({
   })();
 
   const folderSelectLabel =
-    hierarchyLevel === "operator"
-      ? "Operator"
-      : hierarchyLevel === "account"
-        ? "Account"
-        : hierarchyLevel === "project"
-          ? "Project"
-          : null;
+    hierarchyLevel === "region"
+      ? "Region"
+      : hierarchyLevel === "operator"
+        ? "Operator"
+        : hierarchyLevel === "account"
+          ? "Account"
+          : hierarchyLevel === "project"
+            ? "Project"
+            : null;
 
   function toggleZipFolderSelection(folderPath: string) {
     setSelectedZipPaths((prev) =>
@@ -501,9 +513,9 @@ export function PpReportsClient({
 
       <div className="rounded-xl border border-zinc-200 bg-white p-4">
         <p className="text-sm text-zinc-700">
-          Upload finished reports under a fixed folder path: <strong>Operator</strong> → <strong>Account</strong> →{" "}
-          <strong>Project</strong>. Your personal folder is created automatically; choose each level from the dropdowns
-          below (custom names are not allowed).
+          Upload finished reports under a fixed folder path: <strong>Region</strong> → <strong>Operator</strong> →{" "}
+          <strong>Account</strong> → <strong>Project</strong>. Your personal folder is created automatically; choose
+          each level from the dropdowns below (custom names are not allowed).
         </p>
         <p className="mt-2 rounded-md border border-zinc-200 bg-zinc-50 px-3 py-2 text-[11px] text-zinc-700">
           Allowed types: {EMPLOYEE_UPLOAD_ALLOWED_EXTENSIONS_HELP}
@@ -558,8 +570,8 @@ export function PpReportsClient({
             </>
           ) : (
             <p className="text-sm text-zinc-600">
-              You are inside a project folder. Upload files here, or go up to create folders at operator, account, or
-              project level.
+              You are inside a project folder. Upload files here, or go up to create folders at region, operator,
+              account, or project level.
             </p>
           )}
           <input
@@ -709,7 +721,8 @@ export function PpReportsClient({
                 {folders.length === 0 && files.length === 0 ? (
                   <tr>
                     <td colSpan={4} className="px-3 py-8 text-center text-zinc-500">
-                      Empty. Create operator, account, and project folders using the dropdowns above, then upload files.
+                      Empty. Create region, operator, account, and project folders using the dropdowns above, then upload
+                      files.
                     </td>
                   </tr>
                 ) : null}

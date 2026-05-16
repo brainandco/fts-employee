@@ -1,5 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { normalizeRelativePathUnderEmployee } from "@/lib/employee-files/storage";
 
+export type PpReportRegionRow = { id: string; name: string; code: string | null; folder_name: string };
 export type PpReportOperatorRow = { id: string; name: string; sort_order: number };
 export type PpReportAccountRow = { id: string; name: string; sort_order: number };
 export type PpReportProjectRow = {
@@ -10,8 +12,13 @@ export type PpReportProjectRow = {
   operator_name?: string;
 };
 
-export const PP_REPORT_HIERARCHY_LEVELS = ["operator", "account", "project"] as const;
+export const PP_REPORT_HIERARCHY_LEVELS = ["region", "operator", "account", "project"] as const;
 export type PpReportHierarchyLevel = (typeof PP_REPORT_HIERARCHY_LEVELS)[number];
+
+/** Folder segment for a region (matches path normalization used on create). */
+export function ppReportRegionFolderName(regionName: string): string | null {
+  return normalizeRelativePathUnderEmployee(regionName);
+}
 
 export function ppReportPathSegments(pathUnderReporter: string): string[] {
   return pathUnderReporter
@@ -23,12 +30,30 @@ export function ppReportPathSegments(pathUnderReporter: string): string[] {
 
 export function nextPpReportHierarchyLevel(pathUnderReporter: string): PpReportHierarchyLevel | null {
   const depth = ppReportPathSegments(pathUnderReporter).length;
-  if (depth >= 3) return null;
+  if (depth >= PP_REPORT_HIERARCHY_LEVELS.length) return null;
   return PP_REPORT_HIERARCHY_LEVELS[depth] ?? null;
 }
 
+export async function fetchPpReportRegions(supabase: SupabaseClient): Promise<PpReportRegionRow[]> {
+  const { data, error } = await supabase.from("regions").select("id, name, code").order("name");
+  if (error) throw new Error(error.message);
+  const rows: PpReportRegionRow[] = [];
+  for (const r of data ?? []) {
+    const folder_name = ppReportRegionFolderName(String(r.name ?? ""));
+    if (!folder_name) continue;
+    rows.push({
+      id: r.id as string,
+      name: String(r.name ?? "").trim(),
+      code: (r.code as string | null) ?? null,
+      folder_name,
+    });
+  }
+  return rows;
+}
+
 export async function fetchPpReportHierarchy(supabase: SupabaseClient) {
-  const [operatorsRes, accountsRes, projectsRes] = await Promise.all([
+  const [regions, operatorsRes, accountsRes, projectsRes] = await Promise.all([
+    fetchPpReportRegions(supabase),
     supabase
       .from("pp_report_operators")
       .select("id, name, sort_order")
@@ -66,16 +91,26 @@ export async function fetchPpReportHierarchy(supabase: SupabaseClient) {
   });
 
   return {
+    regions,
     operators: (operatorsRes.data ?? []) as PpReportOperatorRow[],
     accounts: (accountsRes.data ?? []) as PpReportAccountRow[],
     projects,
   };
 }
 
+async function resolveRegionInPath(
+  supabase: SupabaseClient,
+  regionSegment: string
+): Promise<{ ok: true; regionName: string } | { ok: false; message: string }> {
+  const regions = await fetchPpReportRegions(supabase);
+  const hit = regions.find((r) => r.folder_name === regionSegment);
+  if (!hit) return { ok: false, message: "Invalid region folder in path." };
+  return { ok: true, regionName: hit.name };
+}
+
 /**
  * Validates a new folder segment under the reporter path.
- * `parentPathUnderReporter` is browse path (empty at reporter root).
- * `folderName` is the single segment being created (already path-normalized).
+ * Path: Region → Operator → Account → Project
  */
 export async function validatePpReportFolderCreate(
   supabase: SupabaseClient,
@@ -90,9 +125,25 @@ export async function validatePpReportFolderCreate(
   if (!level) {
     return {
       ok: false,
-      message: "Folders can only be created at Operator, Account, or Project level. Upload files inside the project folder.",
+      message:
+        "Folders can only be created at Region, Operator, Account, or Project level. Upload files inside the project folder.",
     };
   }
+
+  if (level === "region") {
+    const regions = await fetchPpReportRegions(supabase);
+    if (!regions.some((r) => r.folder_name === name)) {
+      return { ok: false, message: "Choose a valid region from the list (custom folder names are not allowed)." };
+    }
+    return { ok: true };
+  }
+
+  const regionSegment = segments[0];
+  if (!regionSegment) {
+    return { ok: false, message: "Create a region folder first." };
+  }
+  const regionOk = await resolveRegionInPath(supabase, regionSegment);
+  if (!regionOk.ok) return regionOk;
 
   if (level === "operator") {
     const { data, error } = await supabase
@@ -108,11 +159,12 @@ export async function validatePpReportFolderCreate(
     return { ok: true };
   }
 
+  const operatorName = segments[1];
+  if (!operatorName) {
+    return { ok: false, message: "Create an operator folder first." };
+  }
+
   if (level === "account") {
-    const operatorName = segments[0];
-    if (!operatorName) {
-      return { ok: false, message: "Create an operator folder first." };
-    }
     const { data: op, error: opErr } = await supabase
       .from("pp_report_operators")
       .select("id")
@@ -136,9 +188,8 @@ export async function validatePpReportFolderCreate(
   }
 
   // project level
-  const operatorName = segments[0];
-  const accountName = segments[1];
-  if (!operatorName || !accountName) {
+  const accountName = segments[2];
+  if (!accountName) {
     return { ok: false, message: "Create operator and account folders first." };
   }
 
