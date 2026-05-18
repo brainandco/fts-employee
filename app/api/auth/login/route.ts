@@ -70,25 +70,20 @@ export async function POST(request: NextRequest) {
     return NextResponse.redirect(loginUrl, 302);
   }
 
-  // Allow: (1) active employee, or (2) admin user (users_profile ACTIVE) for rare admin access to employee portal.
-  const admin = process.env.SUPABASE_SERVICE_ROLE_KEY
-    ? (await import("@/lib/supabase/admin")).createServerSupabaseAdmin()
-    : null;
-  const client = admin ?? supabase;
-  const e = email.trim().toLowerCase();
-  const { data: employee } = await client.from("employees").select("id, status").eq("email", e).maybeSingle();
-  const { data: userProfile } = await client.from("users_profile").select("id, status").eq("email", e).maybeSingle();
+  const { resolveEmployeePortalAccess } = await import("@/lib/auth/portal-access");
+  const {
+    data: { session: newSession },
+  } = await supabase.auth.getSession();
+  const access = await resolveEmployeePortalAccess(newSession);
 
-  const isEmployee = !!employee && employee.status === "ACTIVE";
-  const isAdmin = !!userProfile && userProfile.status === "ACTIVE" && !employee;
-
-  if (!isEmployee && !isAdmin) {
+  if (access.kind === "denied") {
     await supabase.auth.signOut();
-    const msg = employee
-      ? "Your employee account is inactive. Please contact your administrator to activate your account before you can access the Employee Portal."
-      : "No employee or admin account for this email. Use Admin Portal for users, Employee Portal for employees.";
-    if (wantsJson) return NextResponse.json({ error: msg }, { status: 403 });
-    loginUrl.searchParams.set("error", encodeURIComponent(msg));
+    if (access.reason === "misconfigured") {
+      if (wantsJson) return NextResponse.json({ error: access.message }, { status: 503 });
+      return NextResponse.redirect(new URL("/portal-unavailable", request.url), 302);
+    }
+    if (wantsJson) return NextResponse.json({ error: access.message }, { status: 403 });
+    loginUrl.searchParams.set("error", encodeURIComponent(access.message));
     return NextResponse.redirect(loginUrl, 302);
   }
 

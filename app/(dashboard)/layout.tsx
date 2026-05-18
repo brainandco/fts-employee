@@ -1,51 +1,65 @@
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
-import { createServerSupabaseClient } from "@/lib/supabase/server";
-import { getDataClient } from "@/lib/supabase/server";
 import { CHANGE_PASSWORD_PATH, isPasswordChangeExemptPath } from "@/lib/auth/password-change-gate";
+import { getOptionalAdminPortalUrl, resolveEmployeePortalAccess } from "@/lib/auth/portal-access";
 import { EmployeePortalChrome } from "@/components/layout/EmployeePortalChrome";
 import type { EmployeeNavSection } from "@/components/layout/EmployeeSidebar";
 import { canAccessPpTeamLeaveRequests, hasReportingPortalRole } from "@/lib/pp/auth";
+import { createServerSupabaseClient, getDataClient } from "@/lib/supabase/server";
 
 const SUPER_ROLE_ID = "a0000000-0000-0000-0000-000000000000";
 
 export default async function DashboardLayout({
   children,
 }: { children: React.ReactNode }) {
-  const supabase = await createServerSupabaseClient();
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
-  if (!session) redirect("/login");
-
-  const email = (session.user.email ?? "").trim().toLowerCase();
-  const admin = process.env.SUPABASE_SERVICE_ROLE_KEY
-    ? (await import("@/lib/supabase/admin")).createServerSupabaseAdmin()
-    : null;
-  const client = admin ?? supabase;
-  const { data: employee } = await client
-    .from("employees")
-    .select("id, full_name, status, region_id, avatar_url, must_change_password")
-    .eq("email", email)
-    .maybeSingle();
-  const { data: userProfile } = await client
-    .from("users_profile")
-    .select("id, full_name, status, avatar_url, must_change_password, is_super_user")
-    .eq("email", email)
-    .maybeSingle();
-
-  const isEmployee = !!employee && employee.status === "ACTIVE";
-  const isAdminView = !!userProfile && userProfile.status === "ACTIVE" && !employee;
-
-  if (!isEmployee && !isAdminView) {
-    await supabase.auth.signOut();
-    const inactiveMsg =
-      "Your employee account is inactive. Please contact your administrator to activate your account before you can access the Employee Portal.";
-    const fallbackMsg = "No active employee or admin account for this sign-in. Contact your administrator.";
-    const err = employee && employee.status !== "ACTIVE" ? inactiveMsg : fallbackMsg;
-    redirect("/login?error=" + encodeURIComponent(err));
+  let session;
+  try {
+    const supabase = await createServerSupabaseClient();
+    const { data } = await supabase.auth.getSession();
+    session = data.session;
+  } catch {
+    redirect("/portal-unavailable");
   }
 
+  if (!session) redirect("/login");
+
+  const access = await resolveEmployeePortalAccess(session);
+
+  if (access.kind === "denied") {
+    if (access.reason === "misconfigured") {
+      redirect("/portal-unavailable");
+    }
+    try {
+      const supabase = await createServerSupabaseClient();
+      await supabase.auth.signOut();
+    } catch {
+      /* ignore */
+    }
+    redirect("/login?error=" + encodeURIComponent(access.message));
+  }
+
+  const isEmployee = access.kind === "employee";
+  const isAdminView = access.kind === "admin_view";
+  const employee = isEmployee
+    ? {
+        id: access.employeeId,
+        full_name: access.fullName,
+        region_id: access.regionId,
+        avatar_url: access.avatarUrl,
+        must_change_password: access.mustChangePassword,
+      }
+    : null;
+  const userProfile = isAdminView
+    ? {
+        id: access.profileId,
+        full_name: access.fullName,
+        avatar_url: access.avatarUrl,
+        must_change_password: access.mustChangePassword,
+        is_super_user: access.isSuperUser,
+      }
+    : null;
+
+  const email = access.email;
   const dataClient = await getDataClient();
   const pathname = (await headers()).get("x-pathname") ?? "";
   if (pathname && !isPasswordChangeExemptPath(pathname)) {
@@ -202,6 +216,8 @@ export default async function DashboardLayout({
     });
   }
 
+  const adminPortalUrl = getOptionalAdminPortalUrl();
+
   return (
     <div className="fts-app-shell min-h-dvh">
       <EmployeePortalChrome
@@ -211,8 +227,8 @@ export default async function DashboardLayout({
         avatarUrl={avatarUrl}
         roleBadge={roleBadge}
         unreadNotifications={unreadNotifications ?? 0}
-        showOpenAdmin={isAdminView}
-        adminPortalUrl={process.env.NEXT_PUBLIC_ADMIN_PORTAL_URL || "/"}
+        showOpenAdmin={isAdminView && !!adminPortalUrl}
+        adminPortalUrl={adminPortalUrl ?? ""}
       >
         <div className="fts-animate-in">{children}</div>
       </EmployeePortalChrome>

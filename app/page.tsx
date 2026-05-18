@@ -1,16 +1,34 @@
 import { redirect } from "next/navigation";
+import { resolveEmployeePortalAccess } from "@/lib/auth/portal-access";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 
 export default async function Home() {
-  const supabase = await createServerSupabaseClient();
-  const { data: { session } } = await supabase.auth.getSession();
-  if (session) {
-    const { data: employee } = await supabase
-      .from("employees")
-      .select("status")
-      .eq("email", session.user.email ?? "")
-      .maybeSingle();
-    if (employee?.status === "ACTIVE") redirect("/dashboard");
+  let session;
+  try {
+    const supabase = await createServerSupabaseClient();
+    const { data } = await supabase.auth.getSession();
+    session = data.session;
+  } catch {
+    redirect("/portal-unavailable");
   }
-  redirect("/login");
+
+  if (!session) {
+    redirect("/login");
+  }
+
+  const access = await resolveEmployeePortalAccess(session);
+  if (access.kind === "employee" || access.kind === "admin_view") {
+    redirect("/dashboard");
+  }
+  if (access.reason === "misconfigured") {
+    redirect("/portal-unavailable");
+  }
+
+  try {
+    const supabase = await createServerSupabaseClient();
+    await supabase.auth.signOut();
+  } catch {
+    /* ignore */
+  }
+  redirect("/login?error=" + encodeURIComponent(access.message));
 }

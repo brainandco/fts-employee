@@ -1,5 +1,6 @@
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { getDataClient } from "@/lib/supabase/server";
+import { getOptionalAdminPortalUrl } from "@/lib/auth/portal-access";
 import Link from "next/link";
 import { canAccessPpTeamLeaveRequests, hasReportingPortalRole } from "@/lib/pp/auth";
 import { AssignedAssetsList } from "@/components/assets/AssignedAssetsList";
@@ -17,6 +18,7 @@ export default async function DashboardPage() {
   const { data: userProfile } = await supabase.from("users_profile").select("id, status").eq("email", email).maybeSingle();
 
   const isAdminView = !!userProfile && userProfile.status === "ACTIVE" && !employee;
+  const adminPortalUrl = getOptionalAdminPortalUrl();
   if (isAdminView) {
     return (
       <div className="space-y-6">
@@ -24,7 +26,11 @@ export default async function DashboardPage() {
         <p className="text-zinc-600">You are viewing the Employee Portal as an admin. Full tracking and history are in the Admin Portal.</p>
         <div className="flex flex-wrap gap-3">
           <Link href="/dashboard/admin-overview" className="rounded bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800">All employees</Link>
-          <a href={process.env.NEXT_PUBLIC_ADMIN_PORTAL_URL || "/"} className="rounded border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50">Open Admin Portal</a>
+          {adminPortalUrl ? (
+            <a href={adminPortalUrl} className="rounded border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50">
+              Open Admin Portal
+            </a>
+          ) : null}
         </div>
       </div>
     );

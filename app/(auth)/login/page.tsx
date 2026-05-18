@@ -1,21 +1,29 @@
 import { Suspense } from "react";
 import { redirect } from "next/navigation";
+import { resolveEmployeePortalAccess } from "@/lib/auth/portal-access";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { LoginForm } from "./LoginForm";
 
 export default async function LoginPage() {
-  const supabase = await createServerSupabaseClient();
-  const { data: { session } } = await supabase.auth.getSession();
+  let session;
+  try {
+    const supabase = await createServerSupabaseClient();
+    const { data } = await supabase.auth.getSession();
+    session = data.session;
+  } catch {
+    redirect("/portal-unavailable");
+  }
+
   if (session) {
-    const { data: employee } = await supabase
-      .from("employees")
-      .select("id, status")
-      .eq("email", session.user.email ?? "")
-      .maybeSingle();
-    if (employee?.status === "ACTIVE") {
+    const access = await resolveEmployeePortalAccess(session);
+    if (access.kind === "employee" || access.kind === "admin_view") {
       redirect("/dashboard");
     }
+    if (access.reason === "misconfigured") {
+      redirect("/portal-unavailable");
+    }
   }
+
   return (
     <Suspense
       fallback={
