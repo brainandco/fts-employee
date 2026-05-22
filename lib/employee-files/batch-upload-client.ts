@@ -1,8 +1,12 @@
 import { runPool } from "@/lib/employee-files/concurrency-pool";
+import {
+  defaultMultipartPartUrlBatchSize,
+  defaultMultipartPutConcurrency,
+} from "@/lib/wasabi/s3-multipart-constants";
 import { employeePersonalMultipartFullUpload, fileRequiresMultipartUpload } from "@/lib/wasabi/browser-multipart-upload";
 
 const PRESIGN_MAX = 100;
-const DEFAULT_PUT_CONCURRENCY = 8;
+const DEFAULT_PUT_CONCURRENCY = 10;
 
 const API_BASE = "/api/employee-files";
 
@@ -181,6 +185,8 @@ async function uploadOneEmployeeMultipart(
       apiBase: API_BASE,
       file,
       initPayload,
+      partPutConcurrency: defaultMultipartPutConcurrency(),
+      partUrlBatchSize: defaultMultipartPartUrlBatchSize(),
       onProgress: (loaded, total) => cb?.onFileProgress?.(index, loaded, total),
     });
     cb?.onFileProgress?.(index, file.size, file.size);
@@ -195,7 +201,7 @@ async function uploadOneEmployeeMultipart(
 
 /**
  * Presign many files in one API call, PUT to Wasabi with bounded concurrency, then complete in one (or chunked) call.
- * Files larger than 5 GiB use S3 multipart automatically.
+ * Files larger than 64 MiB use parallel S3 multipart automatically.
  */
 export async function employeeUploadFilesBatch(
   items: EmployeeUploadItem[],

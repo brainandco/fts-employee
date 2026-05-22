@@ -6,7 +6,11 @@ import {
 } from "@/lib/wasabi/s3-client";
 import { buildPpReportObjectKey } from "@/lib/pp-reports/storage";
 import { requirePmEmployeeFilesAccess } from "@/lib/pm-files/auth";
-import { multipartPartCount, multipartPartSizeBytesForFile, S3_SINGLE_PUT_MAX_BYTES } from "@/lib/wasabi/s3-multipart-constants";
+import {
+  multipartPartCount,
+  multipartPartSizeBytesForFile,
+  MULTIPART_UPLOAD_THRESHOLD_BYTES,
+} from "@/lib/wasabi/s3-multipart-constants";
 import { s3CreateMultipartUpload } from "@/lib/wasabi/s3-multipart-server";
 import { NextResponse } from "next/server";
 
@@ -38,9 +42,9 @@ export async function POST(req: Request) {
   }
 
   const byteSize = typeof body.byteSize === "number" && Number.isFinite(body.byteSize) ? Math.floor(body.byteSize) : null;
-  if (byteSize == null || byteSize <= S3_SINGLE_PUT_MAX_BYTES) {
+  if (byteSize == null || byteSize <= MULTIPART_UPLOAD_THRESHOLD_BYTES) {
     return NextResponse.json(
-      { message: `Multipart is only for files larger than ${S3_SINGLE_PUT_MAX_BYTES} bytes` },
+      { message: `Multipart is only for files larger than ${MULTIPART_UPLOAD_THRESHOLD_BYTES} bytes` },
       { status: 400 }
     );
   }

@@ -1,8 +1,15 @@
-import { multipartPartCount, multipartPartSizeBytesForFile, S3_SINGLE_PUT_MAX_BYTES } from "@/lib/wasabi/s3-multipart-constants";
+import {
+  defaultMultipartPartUrlBatchSize,
+  defaultMultipartPutConcurrency,
+  fileRequiresMultipartUpload,
+  multipartPartCount,
+  multipartPartSizeBytesForFile,
+} from "@/lib/wasabi/s3-multipart-constants";
 import { runPool } from "@/lib/employee-files/concurrency-pool";
 
-const DEFAULT_PART_URL_BATCH = 20;
-const DEFAULT_PART_PUT_CONCURRENCY = 6;
+export { fileRequiresMultipartUpload };
+
+type PartUrlRow = { partNumber: number; uploadUrl: string };
 
 function putPartBlob(url: string, blob: Blob, onPartProgress: (loaded: number, total: number) => void): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -24,15 +31,112 @@ function putPartBlob(url: string, blob: Blob, onPartProgress: (loaded: number, t
   });
 }
 
-export function fileRequiresMultipartUpload(byteSize: number): boolean {
-  return byteSize > S3_SINGLE_PUT_MAX_BYTES;
+async function fetchPartUploadUrls(
+  apiBase: string,
+  body: Record<string, unknown>,
+  partNumbers: number[]
+): Promise<Map<number, string>> {
+  const urlRes = await fetch(`${apiBase}/multipart-part-urls`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ...body, partNumbers }),
+  });
+  const urlJson = await urlRes.json().catch(() => ({}));
+  if (!urlRes.ok) {
+    throw new Error(
+      typeof (urlJson as { message?: string }).message === "string"
+        ? (urlJson as { message: string }).message
+        : "Part URL request failed"
+    );
+  }
+  const rows = (urlJson as { parts?: PartUrlRow[] }).parts ?? [];
+  return new Map(rows.map((r) => [r.partNumber, r.uploadUrl] as const));
+}
+
+/**
+ * Upload parts in batches; prefetches presigned URLs for the next batch while the current batch uploads.
+ */
+async function uploadAllPartsParallel(args: {
+  apiBase: string;
+  partUrlBody: Record<string, unknown>;
+  file: File;
+  partSizeBytes: number;
+  partCount: number;
+  partUrlBatchSize: number;
+  partPutConcurrency: number;
+  onProgress?: (loaded: number, total: number) => void;
+}): Promise<{ PartNumber: number; ETag: string }[]> {
+  const { apiBase, partUrlBody, file, partSizeBytes, partCount, partUrlBatchSize, partPutConcurrency, onProgress } =
+    args;
+  const total = file.size;
+  const etags: { PartNumber: number; ETag: string }[] = [];
+  let completedBytes = 0;
+  const partProgressBase = new Map<number, number>();
+
+  const reportOverall = () => {
+    let sum = completedBytes;
+    for (const v of partProgressBase.values()) sum += v;
+    onProgress?.(Math.min(sum, total), total);
+  };
+
+  const batchStarts: number[] = [];
+  for (let s = 1; s <= partCount; s += partUrlBatchSize) {
+    batchStarts.push(s);
+  }
+
+  let nextUrlsPromise: Promise<Map<number, string>> | null = null;
+
+  for (let bi = 0; bi < batchStarts.length; bi++) {
+    const batchStart = batchStarts[bi]!;
+    const batchEnd = Math.min(batchStart + partUrlBatchSize - 1, partCount);
+    const partNumbers: number[] = [];
+    for (let p = batchStart; p <= batchEnd; p++) partNumbers.push(p);
+
+    const byPart = nextUrlsPromise
+      ? await nextUrlsPromise
+      : await fetchPartUploadUrls(apiBase, partUrlBody, partNumbers);
+    nextUrlsPromise = null;
+
+    if (bi + 1 < batchStarts.length) {
+      const nextStart = batchStarts[bi + 1]!;
+      const nextEnd = Math.min(nextStart + partUrlBatchSize - 1, partCount);
+      const nextParts: number[] = [];
+      for (let p = nextStart; p <= nextEnd; p++) nextParts.push(p);
+      nextUrlsPromise = fetchPartUploadUrls(apiBase, partUrlBody, nextParts);
+    } else {
+      nextUrlsPromise = null;
+    }
+
+    const putOne = async (partNumber: number) => {
+      const uploadUrl = byPart.get(partNumber);
+      if (!uploadUrl) throw new Error(`Missing presigned URL for part ${partNumber}`);
+      const start = (partNumber - 1) * partSizeBytes;
+      const end = Math.min(start + partSizeBytes, total);
+      const blob = file.slice(start, end);
+      partProgressBase.set(partNumber, 0);
+      const etag = await putPartBlob(uploadUrl, blob, (loaded) => {
+        partProgressBase.set(partNumber, loaded);
+        reportOverall();
+      });
+      partProgressBase.delete(partNumber);
+      completedBytes += blob.size;
+      reportOverall();
+      return { PartNumber: partNumber, ETag: etag };
+    };
+
+    const batchResults = await runPool(partNumbers, partPutConcurrency, putOne);
+    for (const r of batchResults.sort((a, b) => a.PartNumber - b.PartNumber)) {
+      etags.push(r);
+    }
+  }
+
+  return etags;
 }
 
 export type PpMultipartPartUrlRow = { partNumber: number; uploadUrl: string };
 
 /**
  * PP reports bucket: init + part URLs + complete are separate authenticated routes.
- * @param apiBase — `/api/pp/reports` (reporter) or `/api/pm/pp-reports` (PM browse path).
  */
 export async function browserUploadPpReportMultipart(args: {
   file: File;
@@ -45,8 +149,8 @@ export async function browserUploadPpReportMultipart(args: {
 }): Promise<void> {
   const apiBase = (args.apiBase ?? "/api/pp/reports").replace(/\/$/, "");
   const { file, defaultRelativePath, relativePath, onProgress } = args;
-  const partUrlBatch = args.partUrlBatchSize ?? DEFAULT_PART_URL_BATCH;
-  const partConcurrency = args.partPutConcurrency ?? DEFAULT_PART_PUT_CONCURRENCY;
+  const partUrlBatch = args.partUrlBatchSize ?? defaultMultipartPartUrlBatchSize();
+  const partConcurrency = args.partPutConcurrency ?? defaultMultipartPutConcurrency();
   const total = file.size;
   if (!fileRequiresMultipartUpload(total)) {
     throw new Error("browserUploadPpReportMultipart: file is below multipart threshold");
@@ -68,7 +172,11 @@ export async function browserUploadPpReportMultipart(args: {
   });
   const initJson = await initRes.json().catch(() => ({}));
   if (!initRes.ok) {
-    throw new Error(typeof (initJson as { message?: string }).message === "string" ? (initJson as { message: string }).message : "Multipart init failed");
+    throw new Error(
+      typeof (initJson as { message?: string }).message === "string"
+        ? (initJson as { message: string }).message
+        : "Multipart init failed"
+    );
   }
   const uploadId = String((initJson as { uploadId?: string }).uploadId ?? "");
   const storageKey = String((initJson as { storageKey?: string }).storageKey ?? "");
@@ -80,57 +188,16 @@ export async function browserUploadPpReportMultipart(args: {
     throw new Error("Multipart part size mismatch (client/server)");
   }
 
-  const etags: { PartNumber: number; ETag: string }[] = [];
-  let completedBytes = 0;
-  const partProgressBase = new Map<number, number>();
-
-  const reportOverall = () => {
-    let sum = completedBytes;
-    for (const v of partProgressBase.values()) sum += v;
-    onProgress?.(Math.min(sum, total), total);
-  };
-
-  for (let batchStart = 1; batchStart <= partCount; batchStart += partUrlBatch) {
-    const batchEnd = Math.min(batchStart + partUrlBatch - 1, partCount);
-    const partNumbers: number[] = [];
-    for (let p = batchStart; p <= batchEnd; p++) partNumbers.push(p);
-
-    const urlRes = await fetch(`${apiBase}/multipart-part-urls`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ storageKey, uploadId, partNumbers }),
-    });
-    const urlJson = await urlRes.json().catch(() => ({}));
-    if (!urlRes.ok) {
-      throw new Error(
-        typeof (urlJson as { message?: string }).message === "string" ? (urlJson as { message: string }).message : "Part URL request failed"
-      );
-    }
-    const rows = (urlJson as { parts?: PpMultipartPartUrlRow[] }).parts ?? [];
-    const byPart = new Map(rows.map((r) => [r.partNumber, r.uploadUrl] as const));
-
-    const putOne = async (partNumber: number) => {
-      const uploadUrl = byPart.get(partNumber);
-      if (!uploadUrl) throw new Error(`Missing presigned URL for part ${partNumber}`);
-      const start = (partNumber - 1) * partSizeBytes;
-      const end = Math.min(start + partSizeBytes, total);
-      const blob = file.slice(start, end);
-      partProgressBase.set(partNumber, 0);
-      const etag = await putPartBlob(uploadUrl, blob, (loaded) => {
-        partProgressBase.set(partNumber, loaded);
-        reportOverall();
-      });
-      partProgressBase.delete(partNumber);
-      completedBytes += blob.size;
-      reportOverall();
-      return { PartNumber: partNumber, ETag: etag };
-    };
-
-    const batchResults = await runPool(partNumbers, partConcurrency, putOne);
-    for (const r of batchResults.sort((a, b) => a.PartNumber - b.PartNumber)) {
-      etags.push(r);
-    }
-  }
+  const etags = await uploadAllPartsParallel({
+    apiBase,
+    partUrlBody: { storageKey, uploadId },
+    file,
+    partSizeBytes,
+    partCount,
+    partUrlBatchSize: partUrlBatch,
+    partPutConcurrency: partConcurrency,
+    onProgress,
+  });
 
   const completeRes = await fetch(`${apiBase}/multipart-complete`, {
     method: "POST",
@@ -140,7 +207,9 @@ export async function browserUploadPpReportMultipart(args: {
   const completeJson = await completeRes.json().catch(() => ({}));
   if (!completeRes.ok) {
     throw new Error(
-      typeof (completeJson as { message?: string }).message === "string" ? (completeJson as { message: string }).message : "Multipart complete failed"
+      typeof (completeJson as { message?: string }).message === "string"
+        ? (completeJson as { message: string }).message
+        : "Multipart complete failed"
     );
   }
   onProgress?.(total, total);
@@ -154,7 +223,6 @@ export async function browserUploadEmployeePersonalMultipart(args: {
   id: string;
   partSizeBytes: number;
   partCount: number;
-  /** Merged into multipart-part-urls and multipart-complete JSON (e.g. regionId + employeeId for PM / PP field). */
   partAndCompleteExtra?: Record<string, unknown>;
   partUrlBatchSize?: number;
   partPutConcurrency?: number;
@@ -162,61 +230,20 @@ export async function browserUploadEmployeePersonalMultipart(args: {
 }): Promise<void> {
   const { apiBase, file, id, partSizeBytes, partCount, onProgress, partAndCompleteExtra } = args;
   const extra = partAndCompleteExtra ?? {};
-  const partUrlBatch = args.partUrlBatchSize ?? DEFAULT_PART_URL_BATCH;
-  const partConcurrency = args.partPutConcurrency ?? DEFAULT_PART_PUT_CONCURRENCY;
+  const partUrlBatch = args.partUrlBatchSize ?? defaultMultipartPartUrlBatchSize();
+  const partConcurrency = args.partPutConcurrency ?? defaultMultipartPutConcurrency();
   const total = file.size;
 
-  const etags: { PartNumber: number; ETag: string }[] = [];
-  let completedBytes = 0;
-  const partProgressBase = new Map<number, number>();
-
-  const reportOverall = () => {
-    let sum = completedBytes;
-    for (const v of partProgressBase.values()) sum += v;
-    onProgress?.(Math.min(sum, total), total);
-  };
-
-  for (let batchStart = 1; batchStart <= partCount; batchStart += partUrlBatch) {
-    const batchEnd = Math.min(batchStart + partUrlBatch - 1, partCount);
-    const partNumbers: number[] = [];
-    for (let p = batchStart; p <= batchEnd; p++) partNumbers.push(p);
-
-    const urlRes = await fetch(`${apiBase}/multipart-part-urls`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ...extra, id, partNumbers }),
-    });
-    const urlJson = await urlRes.json().catch(() => ({}));
-    if (!urlRes.ok) {
-      throw new Error(
-        typeof (urlJson as { message?: string }).message === "string" ? (urlJson as { message: string }).message : "Part URL request failed"
-      );
-    }
-    const rows = (urlJson as { parts?: EmployeeMultipartPartUrlRow[] }).parts ?? [];
-    const byPart = new Map(rows.map((r) => [r.partNumber, r.uploadUrl] as const));
-
-    const putOne = async (partNumber: number) => {
-      const uploadUrl = byPart.get(partNumber);
-      if (!uploadUrl) throw new Error(`Missing presigned URL for part ${partNumber}`);
-      const start = (partNumber - 1) * partSizeBytes;
-      const end = Math.min(start + partSizeBytes, total);
-      const blob = file.slice(start, end);
-      partProgressBase.set(partNumber, 0);
-      const etag = await putPartBlob(uploadUrl, blob, (loaded) => {
-        partProgressBase.set(partNumber, loaded);
-        reportOverall();
-      });
-      partProgressBase.delete(partNumber);
-      completedBytes += blob.size;
-      reportOverall();
-      return { PartNumber: partNumber, ETag: etag };
-    };
-
-    const batchResults = await runPool(partNumbers, partConcurrency, putOne);
-    for (const r of batchResults.sort((a, b) => a.PartNumber - b.PartNumber)) {
-      etags.push(r);
-    }
-  }
+  const etags = await uploadAllPartsParallel({
+    apiBase,
+    partUrlBody: { ...extra, id },
+    file,
+    partSizeBytes,
+    partCount,
+    partUrlBatchSize: partUrlBatch,
+    partPutConcurrency: partConcurrency,
+    onProgress,
+  });
 
   const completeRes = await fetch(`${apiBase}/multipart-complete`, {
     method: "POST",
@@ -226,19 +253,17 @@ export async function browserUploadEmployeePersonalMultipart(args: {
   const completeJson = await completeRes.json().catch(() => ({}));
   if (!completeRes.ok) {
     throw new Error(
-      typeof (completeJson as { message?: string }).message === "string" ? (completeJson as { message: string }).message : "Multipart complete failed"
+      typeof (completeJson as { message?: string }).message === "string"
+        ? (completeJson as { message: string }).message
+        : "Multipart complete failed"
     );
   }
   onProgress?.(total, total);
 }
 
-/**
- * One-shot: multipart-init then part uploads and complete (employee / PM / PP field personal files).
- */
 export async function employeePersonalMultipartFullUpload(args: {
   apiBase: string;
   file: File;
-  /** Fields for multipart-init excluding fileName, contentType, byteSize (added from `file`). */
   initPayload: Record<string, unknown>;
   partAndCompleteExtra?: Record<string, unknown>;
   partUrlBatchSize?: number;
@@ -259,7 +284,9 @@ export async function employeePersonalMultipartFullUpload(args: {
   const initJson = await initRes.json().catch(() => ({}));
   if (!initRes.ok) {
     throw new Error(
-      typeof (initJson as { message?: string }).message === "string" ? (initJson as { message: string }).message : "Multipart init failed"
+      typeof (initJson as { message?: string }).message === "string"
+        ? (initJson as { message: string }).message
+        : "Multipart init failed"
     );
   }
   const id = String((initJson as { id?: string }).id ?? "");
@@ -275,8 +302,8 @@ export async function employeePersonalMultipartFullUpload(args: {
     partSizeBytes,
     partCount,
     partAndCompleteExtra,
-    partUrlBatchSize: args.partUrlBatchSize,
-    partPutConcurrency: args.partPutConcurrency,
+    partUrlBatchSize: args.partUrlBatchSize ?? defaultMultipartPartUrlBatchSize(),
+    partPutConcurrency: args.partPutConcurrency ?? defaultMultipartPutConcurrency(),
     onProgress,
   });
 }
