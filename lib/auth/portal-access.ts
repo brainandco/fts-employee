@@ -3,6 +3,12 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { createServerSupabaseAdmin } from "@/lib/supabase/admin";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { getSupabaseUrlAndAnonKey } from "@/lib/supabase/public-env";
+import {
+  findEmployeeByLoginEmail,
+  normalizeLoginEmail,
+  syncEmployeeEmailToAuthIfNeeded,
+  type PortalEmployeeRow,
+} from "@/lib/auth/employee-lookup";
 
 export type EmployeePortalAccess =
   | {
@@ -29,15 +35,6 @@ export type EmployeePortalAccess =
       message: string;
     };
 
-type EmployeeRow = {
-  id: string;
-  full_name: string | null;
-  status: string;
-  region_id: string | null;
-  avatar_url: string | null;
-  must_change_password: boolean | null;
-};
-
 type ProfileRow = {
   id: string;
   full_name: string | null;
@@ -46,6 +43,7 @@ type ProfileRow = {
   must_change_password: boolean | null;
   is_super_user: boolean | null;
   employee_portal_only: boolean | null;
+  email: string | null;
 };
 
 /** Prefer service role so employee reads are reliable (RLS must not hide the signed-in employee). */
@@ -54,6 +52,58 @@ export function getPortalLookupClient(sessionClient: SupabaseClient): SupabaseCl
     return createServerSupabaseAdmin();
   }
   return sessionClient;
+}
+
+async function findUsersProfileForSession(
+  lookup: SupabaseClient,
+  userId: string,
+  authEmail: string
+): Promise<ProfileRow | null> {
+  const cols =
+    "id, full_name, status, avatar_url, must_change_password, is_super_user, employee_portal_only, email";
+
+  const { data: byId } = await lookup.from("users_profile").select(cols).eq("id", userId).maybeSingle();
+  if (byId) return byId as ProfileRow;
+
+  const normalized = normalizeLoginEmail(authEmail);
+  const { data: byEmail } = await lookup
+    .from("users_profile")
+    .select(cols)
+    .eq("email", normalized)
+    .maybeSingle();
+  if (byEmail) return byEmail as ProfileRow;
+
+  const raw = authEmail.trim();
+  if (raw !== normalized) {
+    const { data: byRaw } = await lookup.from("users_profile").select(cols).eq("email", raw).maybeSingle();
+    if (byRaw) return byRaw as ProfileRow;
+  }
+
+  const { data: ilikeRows } = await lookup.from("users_profile").select(cols).ilike("email", raw).limit(10);
+  const hit = (ilikeRows ?? []).find(
+    (r) => normalizeLoginEmail(String((r as ProfileRow).email ?? "")) === normalized
+  );
+  return (hit as ProfileRow | undefined) ?? null;
+}
+
+function employeeAccessFromRow(emp: PortalEmployeeRow, email: string): EmployeePortalAccess {
+  if (emp.status !== "ACTIVE") {
+    return {
+      kind: "denied",
+      reason: "inactive",
+      message:
+        "Your employee account is inactive. Please contact your administrator to activate your account before you can access the Employee Portal.",
+    };
+  }
+  return {
+    kind: "employee",
+    email,
+    employeeId: emp.id,
+    fullName: emp.full_name,
+    regionId: emp.region_id,
+    avatarUrl: emp.avatar_url,
+    mustChangePassword: emp.must_change_password === true,
+  };
 }
 
 export async function resolveEmployeePortalAccess(session: Session | null): Promise<EmployeePortalAccess> {
@@ -73,7 +123,9 @@ export async function resolveEmployeePortalAccess(session: Session | null): Prom
     };
   }
 
-  const email = session.user.email.trim().toLowerCase();
+  const authEmail = session.user.email;
+  const email = normalizeLoginEmail(authEmail);
+
   let sessionClient: SupabaseClient;
   try {
     sessionClient = await createServerSupabaseClient();
@@ -86,54 +138,31 @@ export async function resolveEmployeePortalAccess(session: Session | null): Prom
   }
 
   const lookup = getPortalLookupClient(sessionClient);
+  const usingServiceRole = !!process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-  const [{ data: employee }, { data: userProfile }] = await Promise.all([
-    lookup
-      .from("employees")
-      .select("id, full_name, status, region_id, avatar_url, must_change_password")
-      .eq("email", email)
-      .maybeSingle(),
-    lookup
-      .from("users_profile")
-      .select("id, full_name, status, avatar_url, must_change_password, is_super_user, employee_portal_only")
-      .eq("email", email)
-      .maybeSingle(),
+  const [emp, profile] = await Promise.all([
+    findEmployeeByLoginEmail(lookup, authEmail),
+    findUsersProfileForSession(lookup, session.user.id, authEmail),
   ]);
 
-  const emp = employee as EmployeeRow | null;
-  const profile = userProfile as ProfileRow | null;
-
   if (emp) {
-    if (emp.status !== "ACTIVE") {
-      return {
-        kind: "denied",
-        reason: "inactive",
-        message:
-          "Your employee account is inactive. Please contact your administrator to activate your account before you can access the Employee Portal.",
-      };
+    if (usingServiceRole) {
+      await syncEmployeeEmailToAuthIfNeeded(lookup, emp, authEmail);
     }
-    return {
-      kind: "employee",
-      email,
-      employeeId: emp.id,
-      fullName: emp.full_name,
-      regionId: emp.region_id,
-      avatarUrl: emp.avatar_url,
-      mustChangePassword: emp.must_change_password === true,
-    };
+    return employeeAccessFromRow(emp, email);
   }
 
-  // users_profile row for an employee email must never grant "admin view" on the employee portal.
+  // Portal profile exists but employee row missing — usually email mismatch or record deleted.
   if (profile?.employee_portal_only === true) {
     return {
       kind: "denied",
       reason: "not_found",
       message:
-        "Your employee record could not be loaded. Contact your administrator — use the Employee Portal link from your credentials email, not the Admin Portal.",
+        "We could not find your employee record for this login. Ask your administrator to resend portal credentials from the Employees screen (this refreshes your account link).",
     };
   }
 
-  if (profile && profile.status === "ACTIVE") {
+  if (profile && profile.status === "ACTIVE" && !profile.employee_portal_only) {
     return {
       kind: "admin_view",
       email,

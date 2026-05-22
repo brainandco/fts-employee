@@ -1,3 +1,4 @@
+import { findEmployeeByLoginEmail, normalizeLoginEmail } from "@/lib/auth/employee-lookup";
 import { employeeNameFolderSlug } from "@/lib/employee-files/storage";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { getDataClient } from "@/lib/supabase/server";
@@ -34,13 +35,9 @@ export async function getPostProcessorContext(): Promise<PpSessionContext | null
   } = await userClient.auth.getSession();
   if (!session?.user?.email) return null;
 
-  const email = session.user.email.trim().toLowerCase();
+  const email = normalizeLoginEmail(session.user.email);
   const supabase = await getDataClient();
-  const { data: employee } = await supabase
-    .from("employees")
-    .select("id, status, full_name")
-    .eq("email", email)
-    .maybeSingle();
+  const employee = await findEmployeeByLoginEmail(supabase, session.user.email);
 
   if (!employee || employee.status !== "ACTIVE") return null;
 
