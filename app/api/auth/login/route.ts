@@ -88,5 +88,20 @@ export async function POST(request: NextRequest) {
   }
 
   await supabase.auth.getSession();
+
+  const { auditLog } = await import("@/lib/audit/log");
+  await auditLog({
+    actionType: "login",
+    entityType: "auth",
+    actionCategory: "auth",
+    description: `Employee portal login: ${email.trim()}`,
+    actorUserId: newSession?.user?.id ?? null,
+    actorEmail: email.trim(),
+    portal: "employee",
+    routePath: "/api/auth/login",
+    httpMethod: "POST",
+    req: request,
+  });
+
   return responseToUse;
 }

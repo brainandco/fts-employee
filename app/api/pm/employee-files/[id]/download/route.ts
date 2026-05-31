@@ -7,6 +7,7 @@ import {
   requirePmEmployeeFilesAccess,
 } from "@/lib/pm-files/auth";
 import { getWasabiEmployeeFilesBucket, getWasabiEmployeeFilesS3Client } from "@/lib/wasabi/s3-client";
+import { auditLogFromRequest } from "@/lib/audit/log";
 import { NextResponse } from "next/server";
 
 const EXPIRES = 300;
@@ -43,5 +44,15 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
     ResponseContentDisposition: `attachment; filename="${encodeURIComponent(row.file_name)}"`,
   });
   const downloadUrl = await getSignedUrl(s3, cmd, { expiresIn: EXPIRES });
+
+  await auditLogFromRequest(_req, {
+    actionType: "file_download",
+    entityType: "employee_file",
+    entityId: id,
+    actionCategory: "file",
+    description: `PM downloaded employee file: ${row.file_name}`,
+    meta: { file_name: row.file_name, region_id: row.region_id },
+  });
+
   return NextResponse.json({ downloadUrl, expiresIn: EXPIRES });
 }
