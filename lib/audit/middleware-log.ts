@@ -1,6 +1,7 @@
 import { createClient } from "@supabase/supabase-js";
 import type { NextRequest } from "next/server";
 import { inferFromApiRoute, shouldLogApiMethod, shouldSkipApiAudit } from "@/lib/audit/infer-route";
+import { persistAuditRow } from "@/lib/audit/persist";
 import { getSupabaseProjectUrl } from "@/lib/supabase/public-env";
 
 function clientIp(request: NextRequest): string | null {
@@ -49,7 +50,7 @@ export async function logApiRequestMiddleware(request: NextRequest) {
     auth: { autoRefreshToken: false, persistSession: false },
   });
 
-  const { error } = await supabase.from("audit_logs").insert({
+  await persistAuditRow(supabase, {
     actor_user_id: actor.userId,
     actor_email: actor.email,
     action_type: inferred.actionType,
@@ -64,6 +65,4 @@ export async function logApiRequestMiddleware(request: NextRequest) {
     user_agent: request.headers.get("user-agent"),
     meta: { query: Object.fromEntries(request.nextUrl.searchParams.entries()), source: "middleware" },
   });
-
-  if (error) console.error("[audit middleware]", error.message);
 }

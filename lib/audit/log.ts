@@ -1,5 +1,6 @@
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { createServerSupabaseAdmin } from "@/lib/supabase/admin";
+import { persistAuditRow, type AuditPersistRow } from "@/lib/audit/persist";
 import type { AuditActionCategory, AuditLogInput } from "@/lib/audit/types";
 
 export type { AuditLogInput };
@@ -40,7 +41,7 @@ export async function auditLog(params: AuditLogInput & { req?: Request | null })
       ? { userId: rest.actorUserId ?? null, email: rest.actorEmail ?? null }
       : await resolveActor(req);
 
-  const row = {
+  const row: AuditPersistRow = {
     actor_user_id: actor.userId,
     actor_email: actor.email,
     action_type: rest.actionType,
@@ -61,7 +62,11 @@ export async function auditLog(params: AuditLogInput & { req?: Request | null })
 
   try {
     const db = await getAuditDb();
-    await db.from("audit_logs").insert(row);
+    const ok = await persistAuditRow(db, row);
+    if (!ok) {
+      const userDb = await createServerSupabaseClient();
+      await persistAuditRow(userDb, row);
+    }
   } catch (e) {
     console.error("[audit] insert failed:", e);
   }
