@@ -95,7 +95,7 @@ export function PmAssignVehiclesClient({ vehicles, assignees }: { vehicles: Vehi
         <div className="flex flex-wrap items-end gap-3">
           <div className="min-w-[260px] max-w-xl flex-1">
             <label className="mb-1 block text-sm font-medium text-zinc-700">
-              Driver/Rigger or Self DT in your regions
+              Driver/Rigger, Self DT, or QA in your regions
             </label>
             <SearchableSelect
               options={employeeOptions}
@@ -119,7 +119,7 @@ export function PmAssignVehiclesClient({ vehicles, assignees }: { vehicles: Vehi
         </div>
         {assignees.length === 0 && (
           <p className="mt-2 text-sm text-amber-600">
-            No Driver/Rigger or Self DT in your regions with a free slot, or they already have a vehicle.
+            No Driver/Rigger, Self DT, or QA in your regions with a free slot, or they already have a vehicle.
           </p>
         )}
         {message && <p className="mt-2 text-sm text-emerald-600">{message}</p>}

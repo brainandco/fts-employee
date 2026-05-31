@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { VEHICLE_ASSIGNEE_ROLES } from "@/lib/employees/vehicle-assignment-roles";
 
 /** PM employee row (primary region/project on employees record; extras come from pm_region_assignments / pm_employee_projects). */
 export type PmContext = {
@@ -174,7 +175,7 @@ export async function targetEmployeeIsOnPmTeam(
 export type PmRegionAssigneeOptions = {
   /** Exclude employees with the QC role (assets, SIMs). */
   excludeQc: boolean;
-  /** Only Driver/Rigger or Self DT (vehicles). */
+  /** Only vehicle-eligible roles (Driver/Rigger, Self DT, QA). */
   vehicleDriversOnly: boolean;
 };
 
@@ -215,7 +216,7 @@ export async function loadPmRegionEmployeeOptions(
       .from("employee_roles")
       .select("employee_id")
       .in("employee_id", ids)
-      .in("role", ["Driver/Rigger", "Self DT"]);
+      .in("role", [...VEHICLE_ASSIGNEE_ROLES]);
     const ok = new Set((roleRows ?? []).map((r) => r.employee_id as string));
     filtered = filtered.filter((e) => ok.has(e.id as string));
   }
@@ -280,7 +281,7 @@ export async function targetEmployeeIsInPmRegionScope(
       .from("employee_roles")
       .select("role")
       .eq("employee_id", targetEmployeeId)
-      .in("role", ["Driver/Rigger", "Self DT"])
+      .in("role", [...VEHICLE_ASSIGNEE_ROLES])
       .limit(1);
     if (!(vr ?? []).length) return false;
   }
@@ -393,7 +394,7 @@ export async function loadAllRegionEmployeeAssigneeOptions(
       .from("employee_roles")
       .select("employee_id")
       .in("employee_id", ids)
-      .in("role", ["Driver/Rigger", "Self DT"]);
+      .in("role", [...VEHICLE_ASSIGNEE_ROLES]);
     const ok = new Set((roleRows ?? []).map((r) => r.employee_id as string));
     filtered = filtered.filter((e) => ok.has(e.id as string));
   }
@@ -444,7 +445,7 @@ export async function targetEmployeeIsGlobalRegionAssignee(
       .from("employee_roles")
       .select("role")
       .eq("employee_id", targetEmployeeId)
-      .in("role", ["Driver/Rigger", "Self DT"])
+      .in("role", [...VEHICLE_ASSIGNEE_ROLES])
       .limit(1);
     if (!(vr ?? []).length) return false;
   }

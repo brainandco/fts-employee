@@ -4,9 +4,10 @@ import { NextResponse } from "next/server";
 import { notifyPmAndQcInRegion } from "@/lib/notifyRegionStaff";
 import { deleteReceiptForResource } from "@/lib/resource-receipts";
 import { hasMinimumPhotos, parseImageUrlArray } from "@/lib/resource-photos";
+import { isVehicleAssigneeRole, VEHICLE_ASSIGNEE_ROLES_LABEL } from "@/lib/employees/vehicle-assignment-roles";
 
 /**
- * Driver/Rigger or Self DT returns their assigned vehicle to the pool (QC/PM notified).
+ * Vehicle assignees return their assigned vehicle to the pool (QC/PM notified).
  */
 export async function POST(req: Request) {
   const userClient = await createServerSupabaseClient();
@@ -32,8 +33,11 @@ export async function POST(req: Request) {
 
   const { data: roleRows } = await supabase.from("employee_roles").select("role").eq("employee_id", employee.id);
   const roles = new Set((roleRows ?? []).map((r) => r.role));
-  if (!roles.has("Driver/Rigger") && !roles.has("Self DT")) {
-    return NextResponse.json({ message: "Only Driver/Rigger or Self DT can return a vehicle this way." }, { status: 403 });
+  if (![...roles].some((r) => isVehicleAssigneeRole(r))) {
+    return NextResponse.json(
+      { message: `Only ${VEHICLE_ASSIGNEE_ROLES_LABEL} can return a vehicle this way.` },
+      { status: 403 }
+    );
   }
 
   const { data: assignment } = await supabase

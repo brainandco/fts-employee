@@ -76,7 +76,7 @@ export default async function PmAssignVehiclesPage() {
       <div className="rounded-2xl border border-indigo-200 bg-gradient-to-r from-indigo-50 to-violet-50 p-5 sm:p-6">
         <h1 className="text-2xl font-semibold text-zinc-900">Assign vehicles</h1>
         <p className="mt-1 text-sm text-zinc-600">
-          Assign to a <strong>Driver/Rigger or Self DT</strong> whose record is in one of your regions (primary or extra regions from Admin). One vehicle per person; people who already have a vehicle are hidden. Use the search field to find the employee.
+          Assign to a <strong>Driver/Rigger, Self DT, or QA</strong> employee whose record is in one of your regions (primary or extra regions from Admin). One vehicle per person; people who already have a vehicle are hidden. Use the search field to find the employee.
         </p>
         <p className="mt-3 text-xs font-medium text-zinc-600">
           <span className="rounded-full bg-white px-3 py-1 ring-1 ring-zinc-200">Eligible drivers: {assignees.length}</span>

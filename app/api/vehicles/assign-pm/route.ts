@@ -6,6 +6,7 @@ import {
   targetEmployeeIsInPmRegionScope,
   loadPmScopeIds,
 } from "@/lib/pm-team-assignees";
+import { VEHICLE_ASSIGNEE_ROLES, VEHICLE_ASSIGNEE_ROLES_LABEL } from "@/lib/employees/vehicle-assignment-roles";
 import { upsertPendingReceipts } from "@/lib/resource-receipts";
 
 /** PM assigns available vehicles. Body `assignment_mode`: use `region` (default) for drivers in PM regions; `team` is legacy. */
@@ -59,7 +60,7 @@ export async function POST(req: Request) {
         message:
           assignmentMode === "team"
             ? "Assign only to a team member (DT or Driver/Rigger) on a team in your scope (team region/project in Admin, or project PM)."
-            : "Assign only to Driver/Rigger or Self DT in one of your regions (primary or extra regions from Admin).",
+            : `Assign only to ${VEHICLE_ASSIGNEE_ROLES_LABEL} in one of your regions (primary or extra regions from Admin).`,
       },
       { status: 400 }
     );
@@ -69,9 +70,12 @@ export async function POST(req: Request) {
     .from("employee_roles")
     .select("role")
     .eq("employee_id", employeeId)
-    .in("role", ["Driver/Rigger", "Self DT"]);
+    .in("role", [...VEHICLE_ASSIGNEE_ROLES]);
   if (!(allowedVehicleRole ?? []).length) {
-    return NextResponse.json({ message: "Vehicles can only be assigned to Driver/Rigger or Self DT." }, { status: 400 });
+    return NextResponse.json(
+      { message: `Vehicles can only be assigned to ${VEHICLE_ASSIGNEE_ROLES_LABEL}.` },
+      { status: 400 }
+    );
   }
 
   const { data: existingEmpVehicle } = await supabase
