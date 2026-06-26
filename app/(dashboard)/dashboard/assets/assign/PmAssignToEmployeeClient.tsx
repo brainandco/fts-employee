@@ -65,6 +65,32 @@ export function PmAssignToEmployeeClient({
     return byType.filter((a) => matchesSearch(a, search));
   }, [assets, activeType, search]);
 
+  const assetById = useMemo(() => new Map(assets.map((a) => [a.id, a])), [assets]);
+
+  const selectedAssets = useMemo(() => {
+    const rows: Asset[] = [];
+    for (const id of selected) {
+      const a = assetById.get(id);
+      if (a) rows.push(a);
+    }
+    rows.sort((a, b) => {
+      const cat = (a.category ?? "").localeCompare(b.category ?? "");
+      if (cat !== 0) return cat;
+      return (a.serial ?? a.name ?? "").localeCompare(b.serial ?? b.name ?? "");
+    });
+    return rows;
+  }, [selected, assetById]);
+
+  const removeSelected = (id: string) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      next.delete(id);
+      return next;
+    });
+  };
+
+  const clearSelected = () => setSelected(new Set());
+
   const toggle = (id: string) => {
     setSelected((prev) => {
       const next = new Set(prev);
@@ -170,6 +196,62 @@ export function PmAssignToEmployeeClient({
           </p>
         )}
       </div>
+
+      {selectedAssets.length > 0 ? (
+        <div className="rounded-2xl border border-indigo-200 bg-indigo-50/40 p-4">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <h2 className="text-sm font-semibold text-indigo-950">Selected for assignment</h2>
+              <p className="mt-0.5 text-xs text-indigo-900/80">
+                {selectedAssets.length} asset{selectedAssets.length === 1 ? "" : "s"} — remove any item here without searching again.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={clearSelected}
+              className="rounded border border-indigo-200 bg-white px-3 py-1.5 text-sm font-medium text-indigo-900 hover:bg-indigo-100"
+            >
+              Clear all
+            </button>
+          </div>
+          <div className="overflow-x-auto rounded-xl border border-indigo-100 bg-white">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-zinc-200 bg-zinc-50">
+                  <th className="px-3 py-2 text-left font-medium text-zinc-700">Serial</th>
+                  <th className="px-3 py-2 text-left font-medium text-zinc-700">Model</th>
+                  <th className="px-3 py-2 text-left font-medium text-zinc-700">IMEI 1</th>
+                  <th className="px-3 py-2 text-left font-medium text-zinc-700">Name</th>
+                  <th className="px-3 py-2 text-left font-medium text-zinc-700">Type</th>
+                  <th className="w-24 px-3 py-2 text-right font-medium text-zinc-700">Remove</th>
+                </tr>
+              </thead>
+              <tbody>
+                {selectedAssets.map((a) => (
+                  <tr key={a.id} className="border-b border-zinc-100 last:border-0">
+                    <td className="px-3 py-2 font-medium text-zinc-900">{a.serial ?? "—"}</td>
+                    <td className="px-3 py-2 text-zinc-700">{a.model ?? "—"}</td>
+                    <td className="px-3 py-2 font-mono text-xs text-zinc-700">{a.imei_1 ?? "—"}</td>
+                    <td className="px-3 py-2 text-zinc-900">{a.name ?? "—"}</td>
+                    <td className="px-3 py-2 text-zinc-600">{a.category ?? "—"}</td>
+                    <td className="px-3 py-2 text-right">
+                      <button
+                        type="button"
+                        onClick={() => removeSelected(a.id)}
+                        className="rounded border border-zinc-200 px-2 py-1 text-xs font-medium text-zinc-700 hover:border-red-200 hover:bg-red-50 hover:text-red-700"
+                        aria-label={`Remove ${a.serial ?? a.name ?? "asset"} from selection`}
+                      >
+                        Remove
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      ) : null}
+
       <div className="rounded-2xl border border-zinc-200 bg-white p-3">
         <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
           <div className="min-w-0 flex-1">
