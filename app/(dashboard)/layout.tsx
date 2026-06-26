@@ -145,6 +145,7 @@ export default async function DashboardLayout({
           { href: "/dashboard", label: "Admin view" },
           { href: "/dashboard/admin-overview", label: "All employees" },
           { href: "/dashboard/assets/assign", label: "Assign assets" },
+          { href: "/dashboard/receipt-confirmations", label: "Receipt confirmations" },
           { href: "/dashboard/software", label: "Software library" },
           { href: "/settings/profile", label: "Profile settings" },
         ],
@@ -168,6 +169,7 @@ export default async function DashboardLayout({
         label: "Project manager",
         items: [
           { href: "/dashboard/region-employees-assets", label: "Who has assets" },
+          { href: "/dashboard/receipt-confirmations", label: "Receipt confirmations" },
           { href: "/dashboard/assets/assign", label: "Assign" },
           { href: "/dashboard/sims/assign", label: "Assign SIMs" },
           { href: "/dashboard/vehicles/assign", label: "Assign vehicles" },
