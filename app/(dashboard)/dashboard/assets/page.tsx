@@ -3,6 +3,9 @@ import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import { AssignedAssetsList } from "@/components/assets/AssignedAssetsList";
+import { BulkUnassignAssetsPanel } from "@/components/assets/BulkUnassignAssetsPanel";
+import { loadPmScopeIds } from "@/lib/pm-team-assignees";
+import { resolvePortalAdminAssetAssigner } from "@/lib/portal-asset-assign-auth";
 
 export default async function PmAssetsPage() {
   const userClient = await createServerSupabaseClient();
@@ -13,7 +16,7 @@ export default async function PmAssetsPage() {
   const supabase = await getDataClient();
   const { data: employee } = await supabase
     .from("employees")
-    .select("id, full_name, region_id")
+    .select("id, full_name, region_id, project_id")
     .eq("email", email)
     .maybeSingle();
   if (!employee) redirect("/login");
@@ -21,7 +24,8 @@ export default async function PmAssetsPage() {
   const { data: roles } = await supabase.from("employee_roles").select("role").eq("employee_id", employee.id);
   const isPm = (roles ?? []).some((r) => r.role === "Project Manager");
   const isQc = (roles ?? []).some((r) => r.role === "QC");
-  if (!isPm && !isQc) redirect("/dashboard");
+  const isPortalAdmin = await resolvePortalAdminAssetAssigner(supabase, session.user.id, email);
+  if (!isPm && !isQc && !isPortalAdmin) redirect("/dashboard");
 
   if (isQc && !isPm) {
     const { data: qcAssets } = await supabase
@@ -69,6 +73,32 @@ export default async function PmAssetsPage() {
 
   const available = (assets ?? []).filter((a) => a.status === "Available" && !a.assigned_to_employee_id);
   const assigned = (assets ?? []).filter((a) => a.status !== "Available" || a.assigned_to_employee_id);
+
+  let bulkUnassignRegions: { id: string; name: string }[] = [];
+  let allowOrgWideUnassign = false;
+  let allScopeLabel = "All my regions";
+
+  if (isPortalAdmin) {
+    const { data: allRegions } = await supabase.from("regions").select("id, name").order("name");
+    bulkUnassignRegions = (allRegions ?? []).map((r) => ({ id: r.id, name: r.name }));
+    allowOrgWideUnassign = true;
+    allScopeLabel = "All regions (organization-wide)";
+  } else if (isPm) {
+    const { allowedRegionIds } = await loadPmScopeIds(
+      supabase,
+      { id: employee.id, region_id: employee.region_id, project_id: employee.project_id },
+      session.user.id
+    );
+    if (allowedRegionIds.length > 0) {
+      const { data: scopedRegions } = await supabase
+        .from("regions")
+        .select("id, name")
+        .in("id", allowedRegionIds)
+        .order("name");
+      bulkUnassignRegions = (scopedRegions ?? []).map((r) => ({ id: r.id, name: r.name }));
+    }
+    allowOrgWideUnassign = allowedRegionIds.length > 1;
+  }
 
   return (
     <div className="space-y-6">
@@ -154,6 +184,14 @@ export default async function PmAssetsPage() {
           </div>
         )}
       </section>
+
+      {(isPm || isPortalAdmin) && bulkUnassignRegions.length > 0 ? (
+        <BulkUnassignAssetsPanel
+          regions={bulkUnassignRegions}
+          allowOrgWide={allowOrgWideUnassign || isPortalAdmin}
+          allScopeLabel={allScopeLabel}
+        />
+      ) : null}
     </div>
   );
 }
