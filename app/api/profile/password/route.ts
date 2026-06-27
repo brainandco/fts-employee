@@ -6,9 +6,10 @@ import { getSupabaseUrlAndAnonKey } from "@/lib/supabase/public-env";
 
 export async function POST(request: NextRequest) {
   const auth = await getRequestAuth(request);
-  if (!auth?.user?.email) {
+  if (!auth?.user?.email?.trim()) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+  const email = auth.user.email.trim();
   const session = auth.session;
 
   let body: { current_password?: unknown; new_password?: unknown };
@@ -37,7 +38,7 @@ export async function POST(request: NextRequest) {
   });
 
   const { error: signErr } = await supabase.auth.signInWithPassword({
-    email: session.user.email,
+    email,
     password: current_password,
   });
   if (signErr) {
@@ -58,10 +59,7 @@ export async function POST(request: NextRequest) {
     if (process.env.SUPABASE_SERVICE_ROLE_KEY) {
       const admin = createServerSupabaseAdmin();
       await admin.from("users_profile").update({ must_change_password: false }).eq("id", session.user.id);
-      const em = session.user.email?.trim().toLowerCase();
-      if (em) {
-        await admin.from("employees").update({ must_change_password: false }).eq("email", em);
-      }
+      await admin.from("employees").update({ must_change_password: false }).eq("email", email.toLowerCase());
     }
   } catch {
     /* non-fatal */
