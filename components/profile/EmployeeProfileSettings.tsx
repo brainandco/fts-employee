@@ -189,6 +189,7 @@ export function EmployeeProfileSettings(props: Props) {
       const res = await fetch("/api/profile/password", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify({
           current_password: curPw,
           new_password: newPw,

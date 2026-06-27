@@ -26,6 +26,7 @@ export function ForcedPasswordChangeForm() {
       const res = await fetch("/api/profile/password", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify({ current_password: current, new_password: nextPw }),
       });
       const data = (await res.json().catch(() => ({}))) as { error?: string };
