@@ -1,11 +1,12 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createServerSupabaseClient, getDataClient } from "@/lib/supabase/server";
-import { loadAssetReceiptStatusMap } from "@/lib/assets/asset-receipt-status";
+import { loadAssetReceiptStatusMap, loadSimReceiptStatusMap } from "@/lib/assets/asset-receipt-status";
 import {
   RegionEmployeesWithAssetsClient,
   type EmployeeWithAssets,
   type AssetLine,
+  type SimLine,
 } from "./RegionEmployeesWithAssetsClient";
 
 export default async function RegionEmployeesWithAssetsPage() {
@@ -92,14 +93,53 @@ export default async function RegionEmployeesWithAssetsPage() {
     );
   }
 
+  const { data: assignedSims } = empIds.length
+    ? await supabase
+        .from("sim_cards")
+        .select("id, sim_number, phone_number, operator, service_type, status, assigned_to_employee_id")
+        .in("assigned_to_employee_id", empIds)
+        .eq("status", "Assigned")
+        .order("sim_number")
+    : { data: [] };
+
+  const simsByEmp = new Map<string, SimLine[]>();
+  for (const s of assignedSims ?? []) {
+    const eid = s.assigned_to_employee_id;
+    if (!eid) continue;
+    const list = simsByEmp.get(eid) ?? [];
+    list.push({
+      id: s.id,
+      sim_number: s.sim_number,
+      phone_number: s.phone_number,
+      operator: s.operator,
+      service_type: s.service_type,
+      status: s.status,
+      receiptStatus: null,
+    });
+    simsByEmp.set(eid, list);
+  }
+
+  const simIds = [...new Set((assignedSims ?? []).map((s) => s.id))];
+  const simReceiptMap = await loadSimReceiptStatusMap(supabase, empIds, simIds);
+  for (const [eid, lines] of simsByEmp) {
+    simsByEmp.set(
+      eid,
+      lines.map((line) => ({
+        ...line,
+        receiptStatus: simReceiptMap.get(`${eid}:${line.id}`) ?? null,
+      }))
+    );
+  }
+
   const withAssetsList: EmployeeWithAssets[] = (regionEmps ?? [])
-    .filter((e) => (assetsByEmp.get(e.id)?.length ?? 0) > 0)
+    .filter((e) => (assetsByEmp.get(e.id)?.length ?? 0) > 0 || (simsByEmp.get(e.id)?.length ?? 0) > 0)
     .map((e) => ({
       id: e.id,
       full_name: e.full_name ?? "—",
       email: e.email,
       roles: rolesByEmp.get(e.id) ?? [],
       assets: assetsByEmp.get(e.id) ?? [],
+      sims: simsByEmp.get(e.id) ?? [],
     }));
 
   const withoutCount = (regionEmps ?? []).length - withAssetsList.length;
@@ -124,9 +164,8 @@ export default async function RegionEmployeesWithAssetsPage() {
             <h1 className="mt-1 text-3xl font-bold tracking-tight text-zinc-900">Who has assets</h1>
             <p className="mt-2 max-w-2xl text-sm leading-relaxed text-zinc-600">
               Active colleagues in <span className="font-semibold text-zinc-800">{regionLabel}</span> who currently hold
-              at least one tool (including under maintenance, damaged, or with QC while still on assignment). Each asset
-              shows whether the employee has confirmed receipt or it is still pending. Search by person, email, model,
-              serial, type, or receipt status.
+              at least one asset or SIM. Assets include under maintenance, damaged, or with QC while still on assignment.
+              SIM cards appear in a separate section under each person. Receipt status is shown for both.
             </p>
           </div>
         </div>

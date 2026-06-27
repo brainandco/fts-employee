@@ -9,6 +9,7 @@ import {
 } from "@/lib/leave/leave-asset-prerequisite";
 import { isAdministratorPortalUser } from "@/lib/leave/portal-admin-leave";
 import { collectSuperUserRecipientUserIds } from "@/lib/notify-super-users";
+import { dispatchNotifications } from "@/lib/notifications/dispatch-notifications";
 
 async function regionAndProjectNames(
   supabase: Awaited<ReturnType<typeof getDataClient>>,
@@ -231,7 +232,7 @@ export async function POST(req: Request) {
   }
 
   if (rows.length > 0) {
-    await supabase.from("notifications").insert(rows);
+    await dispatchNotifications(supabase, rows);
   }
 
   return NextResponse.json({ id: approval.id, message: "Leave request submitted" });

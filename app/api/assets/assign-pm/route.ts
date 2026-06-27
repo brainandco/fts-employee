@@ -1,5 +1,5 @@
-import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { getDataClient } from "@/lib/supabase/server";
+import { getRequestAuth } from "@/lib/supabase/request-auth";
 import { NextResponse } from "next/server";
 import {
   targetEmployeeIsOnPmTeam,
@@ -9,17 +9,16 @@ import {
 } from "@/lib/pm-team-assignees";
 import { resolvePortalAdminAssetAssigner } from "@/lib/portal-asset-assign-auth";
 import { upsertPendingReceipts } from "@/lib/resource-receipts";
+import { dispatchNotifications } from "@/lib/notifications/dispatch-notifications";
 
 /**
  * POST /api/assets/assign-pm — PM or portal admin assigns available assets to an employee.
  * Body: { asset_ids: string[], employee_id: string, assignment_mode?: "team" | "region" } — use region (default) for employee-by-region assignment; team is legacy.
  */
 export async function POST(req: Request) {
-  const userClient = await createServerSupabaseClient();
-  const {
-    data: { session },
-  } = await userClient.auth.getSession();
-  if (!session) return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
+  const auth = await getRequestAuth(req);
+  if (!auth) return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
+  const session = auth.session;
 
   const body = await req.json().catch(() => ({}));
   const assignmentMode: "team" | "region" = body.assignment_mode === "team" ? "team" : "region";
@@ -146,17 +145,19 @@ export async function POST(req: Request) {
   if (availableIds.length > 0 && toEmployee?.email) {
     const { data: recipient } = await supabase.from("users_profile").select("id").eq("email", toEmployee.email).maybeSingle();
     if (recipient?.id) {
-      await supabase.from("notifications").insert({
-        recipient_user_id: recipient.id,
-        title: "Confirm receipt: assets assigned",
-        body:
-          availableIds.length === 1
-            ? "An asset was assigned to you. Please open Confirm receipt and confirm you physically received it (optional note)."
-            : `${availableIds.length} assets were assigned to you. Please open Confirm receipt and confirm you received them.`,
-        category: "assignment_receipt",
-        link: "/dashboard/receipts",
-        meta: { asset_ids: availableIds, assigned_by: session.user.id },
-      });
+      await dispatchNotifications(supabase, [
+        {
+          recipient_user_id: recipient.id,
+          title: "Confirm receipt: assets assigned",
+          body:
+            availableIds.length === 1
+              ? "An asset was assigned to you. Please open Confirm receipt and confirm you physically received it (optional note)."
+              : `${availableIds.length} assets were assigned to you. Please open Confirm receipt and confirm you received them.`,
+          category: "assignment_receipt",
+          link: "/dashboard/receipts",
+          meta: { asset_ids: availableIds, assigned_by: session.user.id },
+        },
+      ]);
     }
   }
 

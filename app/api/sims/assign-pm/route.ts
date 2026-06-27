@@ -1,5 +1,5 @@
-import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { getDataClient } from "@/lib/supabase/server";
+import { getRequestAuth } from "@/lib/supabase/request-auth";
 import { NextResponse } from "next/server";
 import {
   targetEmployeeIsOnPmTeam,
@@ -9,9 +9,9 @@ import { upsertPendingReceipts } from "@/lib/resource-receipts";
 
 /** PM assigns available SIMs. Body `assignment_mode`: use `region` (default) for employees in PM regions; `team` is legacy. */
 export async function POST(req: Request) {
-  const userClient = await createServerSupabaseClient();
-  const { data: { session } } = await userClient.auth.getSession();
-  if (!session) return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
+  const auth = await getRequestAuth(req);
+  if (!auth) return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
+  const session = auth.session;
 
   const body = await req.json().catch(() => ({}));
   const assignmentMode: "team" | "region" = body.assignment_mode === "team" ? "team" : "region";

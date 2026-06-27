@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { dispatchNotifications } from "@/lib/notifications/dispatch-notifications";
 
 type NotifyPayload = {
   title: string;
@@ -135,6 +136,6 @@ export async function notifyPmAndQcInRegion(
   }));
 
   if (notifications.length > 0) {
-    await supabase.from("notifications").insert(notifications);
+    await dispatchNotifications(supabase, notifications);
   }
 }

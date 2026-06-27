@@ -1,44 +1,26 @@
-import { getDataClient } from "@/lib/supabase/server";
-import { getRequestAuth } from "@/lib/supabase/request-auth";
 import { NextResponse } from "next/server";
 import { targetEmployeeIsInPmAssignmentScope } from "@/lib/pm-team-assignees";
+import { requirePmMobileContext } from "@/lib/mobile/require-pm-mobile";
+import { getRequestAuth } from "@/lib/supabase/request-auth";
 
 /**
- * PATCH: PM fulfills or rejects a QC replacement request.
+ * PATCH — PM fulfills or rejects a QC replacement request (Bearer).
  * Body: { status: 'Fulfilled' | 'Rejected', replacement_asset_id?: string }
- * When Fulfilled with replacement_asset_id, assigns that asset to the request's for_employee_id.
  */
-export async function PATCH(
-  req: Request,
-  { params }: { params: Promise<{ id: string }> }
-) {
+export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const auth = await getRequestAuth(req);
   if (!auth) return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
-  const session = auth.session;
 
+  const ctx = await requirePmMobileContext(auth);
+  if ("error" in ctx) return ctx.error;
+
+  const { supabase, employee, authUserId } = ctx;
   const { id } = await params;
   const body = await req.json().catch(() => ({}));
   const status = typeof body.status === "string" ? body.status : "";
   if (status !== "Fulfilled" && status !== "Rejected") {
     return NextResponse.json({ message: "status must be Fulfilled or Rejected" }, { status: 400 });
   }
-
-  const supabase = await getDataClient();
-  const email = (session.user.email ?? "").trim();
-  const { data: pmEmployee } = await supabase
-    .from("employees")
-    .select("id, region_id, project_id")
-    .eq("email", email)
-    .maybeSingle();
-  if (!pmEmployee) return NextResponse.json({ message: "Employee not found" }, { status: 403 });
-
-  const { data: pmRole } = await supabase
-    .from("employee_roles")
-    .select("role")
-    .eq("employee_id", pmEmployee.id)
-    .eq("role", "Project Manager")
-    .maybeSingle();
-  if (!pmRole) return NextResponse.json({ message: "Only Project Managers can resolve requests" }, { status: 403 });
 
   const { data: requestRow } = await supabase
     .from("asset_replacement_requests")
@@ -52,9 +34,9 @@ export async function PATCH(
 
   const inScope = await targetEmployeeIsInPmAssignmentScope(
     supabase,
-    pmEmployee,
+    { id: employee.id, region_id: employee.region_id, project_id: employee.project_id },
     requestRow.for_employee_id,
-    session.user.id,
+    authUserId,
     { excludeQc: false, requireVehicleRoles: false }
   );
   if (!inScope) {
@@ -68,7 +50,8 @@ export async function PATCH(
   }
 
   const now = new Date().toISOString();
-  const replacement_asset_id = typeof body.replacement_asset_id === "string" ? body.replacement_asset_id.trim() || null : null;
+  const replacement_asset_id =
+    typeof body.replacement_asset_id === "string" ? body.replacement_asset_id.trim() || null : null;
 
   if (status === "Fulfilled" && replacement_asset_id) {
     const { data: replacementAsset } = await supabase
@@ -85,15 +68,15 @@ export async function PATCH(
       .update({
         assigned_to_employee_id: requestRow.for_employee_id,
         status: "Assigned",
-        assigned_by: session.user.id,
+        assigned_by: authUserId,
         assigned_at: now,
       })
       .eq("id", replacement_asset_id);
     await supabase.from("asset_assignment_history").insert({
       asset_id: replacement_asset_id,
       to_employee_id: requestRow.for_employee_id,
-      assigned_by_user_id: session.user.id,
-      notes: "Replacement assigned by PM from QC request",
+      assigned_by_user_id: authUserId,
+      notes: "Replacement assigned by PM from QC request (mobile)",
     });
   }
 
@@ -102,7 +85,7 @@ export async function PATCH(
     .update({
       status,
       resolved_at: now,
-      resolved_by_employee_id: pmEmployee.id,
+      resolved_by_employee_id: employee.id,
       ...(replacement_asset_id && { replacement_asset_id }),
     })
     .eq("id", id);

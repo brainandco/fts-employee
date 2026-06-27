@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { dispatchNotifications } from "@/lib/notifications/dispatch-notifications";
 
 /** Matches `fts-admin/lib/rbac/permissions.ts` SUPER_ROLE_ID. */
 const SUPER_ROLE_ID = "a0000000-0000-0000-0000-000000000000";
@@ -44,5 +45,5 @@ export async function notifyUsersWhoManageEmployees(client: SupabaseClient, payl
     link: payload.link,
     meta: (payload.meta ?? {}) as object,
   }));
-  if (rows.length) await client.from("notifications").insert(rows);
+  if (rows.length) await dispatchNotifications(client, rows);
 }

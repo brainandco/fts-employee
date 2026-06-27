@@ -1,13 +1,13 @@
-import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { getDataClient } from "@/lib/supabase/server";
+import { getRequestAuth } from "@/lib/supabase/request-auth";
 import { collectSuperUserRecipientUserIds } from "@/lib/notify-super-users";
 import { NextResponse } from "next/server";
 
 /** PM requests new assets from admin. */
 export async function POST(req: Request) {
-  const userClient = await createServerSupabaseClient();
-  const { data: { session } } = await userClient.auth.getSession();
-  if (!session) return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
+  const auth = await getRequestAuth(req);
+  if (!auth) return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
+  const session = auth.session;
 
   const body = await req.json().catch(() => ({}));
   const asset_name = typeof body.asset_name === "string" ? body.asset_name.trim() : "";

@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { resolveEmployeePortalAccess } from "@/lib/auth/portal-access";
 import { loadEmployeeWorkInfo } from "@/lib/mobile/employee-work-info";
 import { isPendingLeaveStatus, mapLeaveApprovalRow } from "@/lib/mobile/leave-requests";
-import { loadPmScopeIds } from "@/lib/pm-team-assignees";
+import { loadPmRegionStats } from "@/lib/mobile/pm-region-stats";
 import { getDataClient } from "@/lib/supabase/server";
 import { getRequestAuth } from "@/lib/supabase/request-auth";
 
@@ -28,6 +28,10 @@ export async function GET(req: Request) {
       unreadNotifications: 0,
       pmRegionEmployeeCount: null,
       pmRegionAssignedAssetCount: null,
+      pmRegionScopeLabel: null,
+      pmAssetsByCategory: null,
+      pmPendingAssetReturns: null,
+      pmPendingQcRequests: null,
     });
   }
 
@@ -76,35 +80,24 @@ export async function GET(req: Request) {
 
   let pmRegionEmployeeCount: number | null = null;
   let pmRegionAssignedAssetCount: number | null = null;
+  let pmRegionScopeLabel: string | null = null;
+  let pmAssetsByCategory: { category: string; count: number }[] | null = null;
+  let pmPendingAssetReturns: number | null = null;
+  let pmPendingQcRequests: number | null = null;
 
   if (isPm && employee) {
-    const { allowedRegionIds } = await loadPmScopeIds(
+    const pmStats = await loadPmRegionStats(
       supabase,
       { id: employee.id, region_id: employee.region_id, project_id: employee.project_id },
       auth.user.id
     );
-    if (allowedRegionIds.length > 0) {
-      const { count: empCount } = await supabase
-        .from("employees")
-        .select("id", { count: "exact", head: true })
-        .in("region_id", allowedRegionIds)
-        .eq("status", "ACTIVE");
-      pmRegionEmployeeCount = empCount ?? 0;
-
-      const { data: regionEmps } = await supabase
-        .from("employees")
-        .select("id")
-        .in("region_id", allowedRegionIds)
-        .eq("status", "ACTIVE");
-      const regionEmpIds = (regionEmps ?? []).map((e) => e.id as string);
-      if (regionEmpIds.length > 0) {
-        const { count: assetCount } = await supabase
-          .from("assets")
-          .select("id", { count: "exact", head: true })
-          .in("assigned_to_employee_id", regionEmpIds)
-          .in("status", ["Assigned", "With_QC", "Under_Maintenance", "Damaged"]);
-        pmRegionAssignedAssetCount = assetCount ?? 0;
-      }
+    if (pmStats) {
+      pmRegionEmployeeCount = pmStats.employeeCount;
+      pmRegionAssignedAssetCount = pmStats.assignedAssetCount;
+      pmRegionScopeLabel = pmStats.scopeLabel;
+      pmAssetsByCategory = pmStats.assetsByCategory;
+      pmPendingAssetReturns = pmStats.pendingAssetReturns;
+      pmPendingQcRequests = pmStats.pendingQcRequests;
     }
   }
 
@@ -148,6 +141,10 @@ export async function GET(req: Request) {
     unreadNotifications: notifRes.count ?? 0,
     pmRegionEmployeeCount,
     pmRegionAssignedAssetCount,
+    pmRegionScopeLabel,
+    pmAssetsByCategory,
+    pmPendingAssetReturns,
+    pmPendingQcRequests,
     work,
     pendingLeaveCount,
     recentLeaves,

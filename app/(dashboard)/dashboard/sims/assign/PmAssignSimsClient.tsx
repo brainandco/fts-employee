@@ -40,6 +40,28 @@ export function PmAssignSimsClient({ sims, assignees }: { sims: Sim[]; assignees
   }, [sims, simQuery]);
   const selectedInView = useMemo(() => filteredSims.filter((s) => selected.has(s.id)).length, [filteredSims, selected]);
 
+  const simById = useMemo(() => new Map(sims.map((s) => [s.id, s])), [sims]);
+
+  const selectedSims = useMemo(() => {
+    const rows: Sim[] = [];
+    for (const id of selected) {
+      const s = simById.get(id);
+      if (s) rows.push(s);
+    }
+    rows.sort((a, b) => a.sim_number.localeCompare(b.sim_number));
+    return rows;
+  }, [selected, simById]);
+
+  const removeSelected = (id: string) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      next.delete(id);
+      return next;
+    });
+  };
+
+  const clearSelected = () => setSelected(new Set());
+
   const toggle = (id: string) => {
     setSelected((prev) => {
       const next = new Set(prev);
@@ -120,6 +142,59 @@ export function PmAssignSimsClient({ sims, assignees }: { sims: Sim[]; assignees
         {message && <p className="mt-2 text-sm text-emerald-600">{message}</p>}
         {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
       </div>
+
+      {selectedSims.length > 0 ? (
+        <div className="rounded-2xl border border-indigo-200 bg-indigo-50/40 p-4">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <h2 className="text-sm font-semibold text-indigo-950">Selected for assignment</h2>
+              <p className="mt-0.5 text-xs text-indigo-900/80">
+                {selectedSims.length} SIM{selectedSims.length === 1 ? "" : "s"} — remove any item here without searching again.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={clearSelected}
+              className="rounded border border-indigo-200 bg-white px-3 py-1.5 text-sm font-medium text-indigo-900 hover:bg-indigo-100"
+            >
+              Clear all
+            </button>
+          </div>
+          <div className="overflow-x-auto rounded-xl border border-indigo-100 bg-white">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-zinc-200 bg-zinc-50">
+                  <th className="px-3 py-2 text-left font-medium text-zinc-700">SIM number</th>
+                  <th className="px-3 py-2 text-left font-medium text-zinc-700">Phone</th>
+                  <th className="px-3 py-2 text-left font-medium text-zinc-700">Operator</th>
+                  <th className="px-3 py-2 text-left font-medium text-zinc-700">Service</th>
+                  <th className="w-24 px-3 py-2 text-right font-medium text-zinc-700">Remove</th>
+                </tr>
+              </thead>
+              <tbody>
+                {selectedSims.map((s) => (
+                  <tr key={s.id} className="border-b border-zinc-100 last:border-0">
+                    <td className="px-3 py-2 font-mono text-xs text-zinc-800">{s.sim_number}</td>
+                    <td className="px-3 py-2 text-zinc-700">{s.phone_number ?? "—"}</td>
+                    <td className="px-3 py-2 text-zinc-700">{s.operator}</td>
+                    <td className="px-3 py-2 text-zinc-700">{s.service_type}</td>
+                    <td className="px-3 py-2 text-right">
+                      <button
+                        type="button"
+                        onClick={() => removeSelected(s.id)}
+                        className="rounded border border-zinc-200 px-2 py-1 text-xs font-medium text-zinc-700 hover:border-red-200 hover:bg-red-50 hover:text-red-700"
+                        aria-label={`Remove ${s.sim_number} from selection`}
+                      >
+                        Remove
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      ) : null}
 
       {sims.length === 0 ? (
         <div className="rounded-2xl border border-zinc-200 bg-white p-6 text-sm text-zinc-500">No available SIMs.</div>
