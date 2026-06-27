@@ -49,11 +49,12 @@ export default async function LeavePage() {
       <div className="rounded-2xl border border-violet-200 bg-gradient-to-r from-violet-50 to-fuchsia-50 p-5 sm:p-6">
         <h1 className="text-2xl font-semibold tracking-tight text-zinc-900">Leave</h1>
         <p className="mt-1 text-zinc-600">
-          Choose dates and leave type, then submit. There is no guarantor. If you hold assigned assets or SIM cards, you
-          must return them before applying for any leave except a <strong>single calendar day</strong> of{" "}
-          <strong>Sick</strong> or <strong>Casual</strong>. Portal Administrators and Super Users: your request goes to a
-          Super User for approval (no performa). Everyone else: an admin reviews first and may send a filled performa PDF;
-          after you sign and upload it, a Super User gives final approval.
+          Choose dates and leave type, then submit. For long vacations (Annual, Maternity, Hajj / Umrah, etc.) you must
+          return all assigned assets, SIMs, and vehicles and wait for <strong>PM confirmation</strong> before applying.
+          A single calendar day of <strong>Sick</strong>, <strong>Casual</strong>, or <strong>Emergency</strong> leave
+          does not require returns. Portal Administrators and Super Users: your request goes to a Super User for approval
+          (no performa). Everyone else: an admin reviews first and may send a filled performa PDF; after you sign and
+          upload it, a Super User gives final approval.
         </p>
       </div>
 

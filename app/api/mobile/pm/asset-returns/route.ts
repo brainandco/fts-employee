@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getRequestAuth } from "@/lib/supabase/request-auth";
 import { requirePmMobileContext } from "@/lib/mobile/require-pm-mobile";
+import { pmEmployeeIdSet } from "@/lib/employees/pm-role";
 
 /** GET — pending asset returns in PM scope (Bearer). */
 export async function GET(req: Request) {
@@ -25,20 +26,24 @@ export async function GET(req: Request) {
   const { data: pending, error } = await pendingQuery.order("created_at", { ascending: true });
   if (error) return NextResponse.json({ message: error.message }, { status: 400 });
 
-  const ids = [...new Set((pending ?? []).map((r) => r.asset_id))];
   const empIds = [...new Set((pending ?? []).map((r) => r.from_employee_id))];
+  const pmIds = await pmEmployeeIdSet(supabase, empIds);
+  const nonPmPending = (pending ?? []).filter((r) => !pmIds.has(r.from_employee_id));
+
+  const ids = [...new Set(nonPmPending.map((r) => r.asset_id))];
+  const filteredEmpIds = [...new Set(nonPmPending.map((r) => r.from_employee_id))];
 
   const { data: assets } = ids.length
     ? await supabase.from("assets").select("id, name, model, serial, category").in("id", ids)
     : { data: [] };
-  const { data: emps } = empIds.length
-    ? await supabase.from("employees").select("id, full_name").in("id", empIds)
+  const { data: emps } = filteredEmpIds.length
+    ? await supabase.from("employees").select("id, full_name").in("id", filteredEmpIds)
     : { data: [] };
 
   const assetMap = new Map((assets ?? []).map((a) => [a.id, a]));
   const empMap = new Map((emps ?? []).map((e) => [e.id, e.full_name]));
 
-  const rows = (pending ?? []).map((r) => ({
+  const rows = nonPmPending.map((r) => ({
     id: r.id,
     assetId: r.asset_id,
     fromEmployeeId: r.from_employee_id,

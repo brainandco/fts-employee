@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { requirePmMobileContext } from "@/lib/mobile/require-pm-mobile";
 import { getRequestAuth } from "@/lib/supabase/request-auth";
+import { employeeHasPmRole } from "@/lib/employees/pm-role";
 
 type Decision = "Available" | "Under_Maintenance" | "Damaged";
 
@@ -34,12 +35,18 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
 
   const { data: row, error: fetchErr } = await supabase
     .from("asset_return_requests")
-    .select("id, asset_id, status, region_id")
+    .select("id, asset_id, from_employee_id, status, region_id")
     .eq("id", id)
     .single();
 
   if (fetchErr || !row) return NextResponse.json({ message: "Not found" }, { status: 404 });
   if (row.status !== "pending") return NextResponse.json({ message: "Already processed" }, { status: 400 });
+  if (await employeeHasPmRole(supabase, row.from_employee_id)) {
+    return NextResponse.json(
+      { message: "Returns from Project Managers are confirmed by Admin in the Admin Portal." },
+      { status: 403 }
+    );
+  }
   if (!allowedRegionIds.includes(row.region_id as string)) {
     return NextResponse.json({ message: "Outside your PM scope" }, { status: 403 });
   }

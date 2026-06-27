@@ -3,29 +3,39 @@
 import Link from "next/link";
 import { useEffect } from "react";
 
+export type LeavePrerequisiteModalState =
+  | { open: false }
+  | {
+      open: true;
+      kind: "assigned_items";
+      assetCount: number;
+      simCount: number;
+      vehicleCount: number;
+    }
+  | {
+      open: true;
+      kind: "pending_confirmation";
+      pendingReturnCount: number;
+    };
+
 interface LeaveAssetPrerequisiteModalProps {
-  open: boolean;
+  state: LeavePrerequisiteModalState;
   onClose: () => void;
-  assetCount: number;
-  simCount: number;
 }
 
-export function LeaveAssetPrerequisiteModal({
-  open,
-  onClose,
-  assetCount,
-  simCount,
-}: LeaveAssetPrerequisiteModalProps) {
+export function LeaveAssetPrerequisiteModal({ state, onClose }: LeaveAssetPrerequisiteModalProps) {
   useEffect(() => {
-    if (!open) return;
+    if (!state.open) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [open, onClose]);
+  }, [state.open, onClose]);
 
-  if (!open) return null;
+  if (!state.open) return null;
+
+  const isPending = state.kind === "pending_confirmation";
 
   return (
     <div
@@ -40,32 +50,48 @@ export function LeaveAssetPrerequisiteModal({
         onClick={(e) => e.stopPropagation()}
       >
         <h3 id="leave-asset-prereq-title" className="text-lg font-semibold text-zinc-900">
-          Return assigned equipment first
+          {isPending ? "Waiting for return confirmation" : "Return assigned equipment first"}
         </h3>
         <p className="mt-2 text-sm text-zinc-600">
-          This leave cannot be submitted while you still have assigned company assets or SIM cards. Finish your returns,
-          then submit the request again.
+          {isPending
+            ? "You submitted asset returns but PM has not confirmed them yet. Leave can only be applied after confirmation."
+            : "This leave requires all company assets, SIM cards, and vehicles to be returned and confirmed before you can apply."}
         </p>
-        <ul className="mt-4 list-disc space-y-2 pl-5 text-sm text-zinc-700">
-          {assetCount > 0 ? (
-            <li>
-              You have <strong>{assetCount}</strong> physical asset{assetCount === 1 ? "" : "s"} still assigned — use{" "}
-              <strong>Asset returns</strong> to hand them back.
-            </li>
-          ) : null}
-          {simCount > 0 ? (
-            <li>
-              You have <strong>{simCount}</strong> SIM card{simCount === 1 ? "" : "s"} still assigned — return them from
-              the same area so your record is cleared.
-            </li>
-          ) : null}
-          {assetCount === 0 && simCount === 0 ? (
-            <li>You still have assigned items on file. Use <strong>Asset returns</strong> to clear them, or contact your administrator.</li>
-          ) : null}
-        </ul>
+        {!isPending ? (
+          <ul className="mt-4 list-disc space-y-2 pl-5 text-sm text-zinc-700">
+            {state.assetCount > 0 ? (
+              <li>
+                You have <strong>{state.assetCount}</strong> physical asset{state.assetCount === 1 ? "" : "s"} still
+                assigned — use <strong>Asset returns</strong> to hand them back.
+              </li>
+            ) : null}
+            {state.simCount > 0 ? (
+              <li>
+                You have <strong>{state.simCount}</strong> SIM card{state.simCount === 1 ? "" : "s"} still assigned.
+              </li>
+            ) : null}
+            {state.vehicleCount > 0 ? (
+              <li>
+                You have <strong>{state.vehicleCount}</strong> vehicle{state.vehicleCount === 1 ? "" : "s"} still
+                assigned.
+              </li>
+            ) : null}
+            {state.assetCount === 0 && state.simCount === 0 && state.vehicleCount === 0 ? (
+              <li>
+                You still have assigned items on file. Use <strong>Asset returns</strong> or contact your administrator.
+              </li>
+            ) : null}
+          </ul>
+        ) : (
+          <p className="mt-4 text-sm text-zinc-700">
+            <strong>{state.pendingReturnCount}</strong> return{state.pendingReturnCount === 1 ? "" : "s"} awaiting PM
+            confirmation. Project Managers: Admin confirms your returns in the Admin Portal.
+          </p>
+        )}
         <div className="mt-4 rounded-md border border-amber-100 bg-amber-50/90 px-3 py-2 text-sm text-amber-950">
-          <strong>Exception:</strong> a single calendar day of <strong>Sick</strong> or <strong>Casual</strong> leave
-          does not require returning equipment first. Multi-day Sick or Casual, and all other leave types, do.
+          <strong>Exception:</strong> a single calendar day of <strong>Sick</strong>, <strong>Casual</strong>, or{" "}
+          <strong>Emergency</strong> leave does not require returning equipment. Annual, Maternity, Hajj / Umrah, and other
+          long vacations do.
         </div>
         <div className="mt-6 flex flex-wrap items-center justify-end gap-2">
           <button

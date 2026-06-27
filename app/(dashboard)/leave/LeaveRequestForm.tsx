@@ -2,20 +2,15 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { LEAVE_ASSIGNED_ITEMS_NOT_RETURNED } from "@/lib/leave/leave-asset-prerequisite";
-import { LeaveAssetPrerequisiteModal } from "@/components/leave/LeaveAssetPrerequisiteModal";
-
-const LEAVE_TYPES = [
-  "Annual",
-  "Sick",
-  "Casual",
-  "Emergency",
-  "Unpaid",
-  "Marriage",
-  "Bereavement",
-  "Hajj / Umrah",
-  "Other",
-] as const;
+import {
+  LEAVE_ASSIGNED_ITEMS_NOT_RETURNED,
+  LEAVE_PENDING_RETURN_CONFIRMATION,
+} from "@/lib/leave/leave-asset-prerequisite";
+import { LEAVE_TYPES } from "@/lib/leave/leave-types";
+import {
+  LeaveAssetPrerequisiteModal,
+  type LeavePrerequisiteModalState,
+} from "@/components/leave/LeaveAssetPrerequisiteModal";
 
 export function LeaveRequestForm() {
   const router = useRouter();
@@ -25,16 +20,12 @@ export function LeaveRequestForm() {
   const [leaveType, setLeaveType] = useState<string>(LEAVE_TYPES[0]);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
-  const [assignedItemsModal, setAssignedItemsModal] = useState<{
-    open: boolean;
-    assetCount: number;
-    simCount: number;
-  }>({ open: false, assetCount: 0, simCount: 0 });
+  const [prerequisiteModal, setPrerequisiteModal] = useState<LeavePrerequisiteModalState>({ open: false });
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setMessage(null);
-    setAssignedItemsModal({ open: false, assetCount: 0, simCount: 0 });
+    setPrerequisiteModal({ open: false });
     if (!fromDate || !toDate) {
       setMessage({ type: "error", text: "From date and to date are required." });
       return;
@@ -63,10 +54,20 @@ export function LeaveRequestForm() {
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         if (data.code === LEAVE_ASSIGNED_ITEMS_NOT_RETURNED) {
-          setAssignedItemsModal({
+          setPrerequisiteModal({
             open: true,
+            kind: "assigned_items",
             assetCount: Number(data.asset_count) || 0,
             simCount: Number(data.sim_count) || 0,
+            vehicleCount: Number(data.vehicle_count) || 0,
+          });
+          return;
+        }
+        if (data.code === LEAVE_PENDING_RETURN_CONFIRMATION) {
+          setPrerequisiteModal({
+            open: true,
+            kind: "pending_confirmation",
+            pendingReturnCount: Number(data.pending_return_count) || 1,
           });
           return;
         }
@@ -87,86 +88,84 @@ export function LeaveRequestForm() {
   return (
     <>
       <LeaveAssetPrerequisiteModal
-        open={assignedItemsModal.open}
-        onClose={() => setAssignedItemsModal((s) => ({ ...s, open: false }))}
-        assetCount={assignedItemsModal.assetCount}
-        simCount={assignedItemsModal.simCount}
+        state={prerequisiteModal}
+        onClose={() => setPrerequisiteModal({ open: false })}
       />
-    <form onSubmit={submit} className="mt-4 max-w-md space-y-4">
-      <div className="rounded-lg border border-amber-100 bg-amber-50/90 px-3 py-2 text-sm text-amber-950">
-        <strong>Assets:</strong> except for a <strong>single-day Sick or Casual</strong> request, you must return all
-        assigned assets and SIM cards before applying. Multi-day Sick or Casual, and any other leave type, require a
-        clear assignment first.
-      </div>
-      <div>
-        <label htmlFor="leave_type" className="mb-1 block text-sm font-medium text-zinc-700">
-          Leave type
-        </label>
-        <select
-          id="leave_type"
-          value={leaveType}
-          onChange={(e) => setLeaveType(e.target.value)}
-          required
-          className="w-full rounded border border-zinc-300 px-3 py-2 text-sm"
+      <form onSubmit={submit} className="mt-4 max-w-md space-y-4">
+        <div className="rounded-lg border border-amber-100 bg-amber-50/90 px-3 py-2 text-sm text-amber-950">
+          <strong>Long vacations</strong> (Annual, Maternity, Hajj / Umrah, etc.): return all assets, SIMs, and vehicles
+          first and wait for <strong>PM confirmation</strong> before applying.{" "}
+          <strong>Single-day Sick, Casual, or Emergency</strong> leave does not require returns.
+        </div>
+        <div>
+          <label htmlFor="leave_type" className="mb-1 block text-sm font-medium text-zinc-700">
+            Leave type
+          </label>
+          <select
+            id="leave_type"
+            value={leaveType}
+            onChange={(e) => setLeaveType(e.target.value)}
+            required
+            className="w-full rounded border border-zinc-300 px-3 py-2 text-sm"
+          >
+            {LEAVE_TYPES.map((t) => (
+              <option key={t} value={t}>
+                {t}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label htmlFor="from_date" className="mb-1 block text-sm font-medium text-zinc-700">
+            From date
+          </label>
+          <input
+            id="from_date"
+            type="date"
+            value={fromDate}
+            onChange={(e) => setFromDate(e.target.value)}
+            required
+            className="w-full rounded border border-zinc-300 px-3 py-2 text-sm"
+          />
+        </div>
+        <div>
+          <label htmlFor="to_date" className="mb-1 block text-sm font-medium text-zinc-700">
+            To date
+          </label>
+          <input
+            id="to_date"
+            type="date"
+            value={toDate}
+            onChange={(e) => setToDate(e.target.value)}
+            required
+            className="w-full rounded border border-zinc-300 px-3 py-2 text-sm"
+          />
+        </div>
+        <div>
+          <label htmlFor="reason" className="mb-1 block text-sm font-medium text-zinc-700">
+            Reason <span className="text-red-600">*</span>
+          </label>
+          <textarea
+            id="reason"
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+            rows={3}
+            required
+            className="w-full rounded border border-zinc-300 px-3 py-2 text-sm"
+            placeholder="Required — e.g. personal, medical, family"
+          />
+        </div>
+        {message ? (
+          <p className={`text-sm ${message.type === "success" ? "text-emerald-600" : "text-red-600"}`}>{message.text}</p>
+        ) : null}
+        <button
+          type="submit"
+          disabled={loading}
+          className="rounded bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-50"
         >
-          {LEAVE_TYPES.map((t) => (
-            <option key={t} value={t}>
-              {t}
-            </option>
-          ))}
-        </select>
-      </div>
-      <div>
-        <label htmlFor="from_date" className="mb-1 block text-sm font-medium text-zinc-700">
-          From date
-        </label>
-        <input
-          id="from_date"
-          type="date"
-          value={fromDate}
-          onChange={(e) => setFromDate(e.target.value)}
-          required
-          className="w-full rounded border border-zinc-300 px-3 py-2 text-sm"
-        />
-      </div>
-      <div>
-        <label htmlFor="to_date" className="mb-1 block text-sm font-medium text-zinc-700">
-          To date
-        </label>
-        <input
-          id="to_date"
-          type="date"
-          value={toDate}
-          onChange={(e) => setToDate(e.target.value)}
-          required
-          className="w-full rounded border border-zinc-300 px-3 py-2 text-sm"
-        />
-      </div>
-      <div>
-        <label htmlFor="reason" className="mb-1 block text-sm font-medium text-zinc-700">
-          Reason <span className="text-red-600">*</span>
-        </label>
-        <textarea
-          id="reason"
-          value={reason}
-          onChange={(e) => setReason(e.target.value)}
-          rows={3}
-          required
-          className="w-full rounded border border-zinc-300 px-3 py-2 text-sm"
-          placeholder="Required — e.g. personal, medical, family"
-        />
-      </div>
-      {message ? (
-        <p className={`text-sm ${message.type === "success" ? "text-emerald-600" : "text-red-600"}`}>{message.text}</p>
-      ) : null}
-      <button
-        type="submit"
-        disabled={loading}
-        className="rounded bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-50"
-      >
-        {loading ? "Submitting…" : "Submit leave request"}
-      </button>
-    </form>
+          {loading ? "Submitting…" : "Submit leave request"}
+        </button>
+      </form>
     </>
   );
 }
