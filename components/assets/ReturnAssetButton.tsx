@@ -3,16 +3,20 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { ReturnHandInPhotos } from "@/components/assets/ReturnHandInPhotos";
+import { assetCategoryRequiresConditionPhotos } from "@/lib/assets/asset-condition-photos";
 import { MIN_RESOURCE_PHOTOS } from "@/lib/resource-photos";
 
 export function ReturnAssetButton({
   assetId,
   assetLabel,
+  assetCategory,
 }: {
   assetId: string;
   assetLabel: string;
+  assetCategory?: string | null;
 }) {
   const router = useRouter();
+  const needsPhotos = assetCategoryRequiresConditionPhotos(assetCategory);
   const [open, setOpen] = useState(false);
   const [comment, setComment] = useState("");
   const [returnUrls, setReturnUrls] = useState<string[]>([]);
@@ -25,7 +29,7 @@ export function ReturnAssetButton({
       setError("Please explain why you are returning this asset.");
       return;
     }
-    if (returnUrls.length < MIN_RESOURCE_PHOTOS) {
+    if (needsPhotos && returnUrls.length < MIN_RESOURCE_PHOTOS) {
       setError(`Add at least ${MIN_RESOURCE_PHOTOS} condition photos.`);
       return;
     }
@@ -77,7 +81,10 @@ export function ReturnAssetButton({
             <h3 className="text-lg font-semibold text-zinc-900">Return asset</h3>
             <p className="mt-1 text-sm text-zinc-600">{assetLabel}</p>
             <p className="mt-3 text-sm text-zinc-600">
-              Describe the condition and why you are returning it (required). Upload photos of the current condition (required). QC and PM are notified; PM will finalise status after handover.
+              Describe the condition and why you are returning it (required).
+              {needsPhotos
+                ? " Upload photos of the current condition (required). QC and PM are notified; PM will finalise status after handover."
+                : " No photos needed for this accessory. QC and PM are notified; PM will finalise status after handover."}
             </p>
             <textarea
               value={comment}
@@ -86,7 +93,9 @@ export function ReturnAssetButton({
               className="mt-3 w-full rounded border border-zinc-300 px-3 py-2 text-sm"
               placeholder="e.g. Screen fault, battery not holding charge, no longer needed for project…"
             />
-            <ReturnHandInPhotos purpose="asset-return" assetId={assetId} urls={returnUrls} onUrlsChange={setReturnUrls} />
+            {needsPhotos ? (
+              <ReturnHandInPhotos purpose="asset-return" assetId={assetId} urls={returnUrls} onUrlsChange={setReturnUrls} />
+            ) : null}
             {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
             <div className="mt-4 flex justify-end gap-2">
               <button type="button" onClick={() => setOpen(false)} className="rounded border border-zinc-300 px-3 py-1.5 text-sm text-zinc-700">

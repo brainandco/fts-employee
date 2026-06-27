@@ -10,6 +10,8 @@ export type PendingReceiptDisplay = {
   resource_type: "asset" | "sim_card" | "vehicle";
   label: string;
   assigned_at: string;
+  /** False for small accessories (cable, USB hub) — confirm like SIM. */
+  requiresConditionPhotos?: boolean;
 };
 
 export function PendingReceiptRow({ row }: { row: PendingReceiptDisplay }) {
@@ -19,10 +21,11 @@ export function PendingReceiptRow({ row }: { row: PendingReceiptDisplay }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const isAsset = row.resource_type === "asset";
+  const needsPhotos = isAsset && row.requiresConditionPhotos !== false;
 
   async function confirm() {
     setError("");
-    if (isAsset && receiptUrls.length < MIN_RESOURCE_PHOTOS) {
+    if (needsPhotos && receiptUrls.length < MIN_RESOURCE_PHOTOS) {
       setError(`Add at least ${MIN_RESOURCE_PHOTOS} photos showing the asset’s current condition.`);
       return;
     }
@@ -32,7 +35,7 @@ export function PendingReceiptRow({ row }: { row: PendingReceiptDisplay }) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         message: message.trim() || undefined,
-        ...(isAsset ? { receipt_image_urls: receiptUrls } : {}),
+        ...(needsPhotos ? { receipt_image_urls: receiptUrls } : {}),
       }),
     });
     const data = await res.json().catch(() => ({}));
@@ -61,7 +64,7 @@ export function PendingReceiptRow({ row }: { row: PendingReceiptDisplay }) {
         </div>
       </div>
       <p className="mt-3 text-sm text-zinc-600">
-        {isAsset ? (
+        {needsPhotos ? (
           <>
             Confirm you physically received this item. Upload at least {MIN_RESOURCE_PHOTOS} photos of its current condition
             (all sides / visible issues). You can add an optional note.
@@ -70,7 +73,7 @@ export function PendingReceiptRow({ row }: { row: PendingReceiptDisplay }) {
           <>Confirm you physically received this item. You can add an optional note (e.g. condition on handover).</>
         )}
       </p>
-      {isAsset ? (
+      {needsPhotos ? (
         <ReturnHandInPhotos
           purpose="receipt-confirmation"
           receiptConfirmationId={row.id}
@@ -91,7 +94,7 @@ export function PendingReceiptRow({ row }: { row: PendingReceiptDisplay }) {
       <button
         type="button"
         onClick={() => void confirm()}
-        disabled={loading || (isAsset && receiptUrls.length < MIN_RESOURCE_PHOTOS)}
+        disabled={loading || (needsPhotos && receiptUrls.length < MIN_RESOURCE_PHOTOS)}
         className="mt-3 rounded bg-emerald-700 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-800 disabled:opacity-50"
       >
         {loading ? "Saving…" : "I confirm receipt"}

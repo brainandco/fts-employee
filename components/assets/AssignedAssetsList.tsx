@@ -41,6 +41,7 @@ export function AssignedAssetsList({ assets }: { assets: AssignedAssetRow[] }) {
             {canReturn ? (
               <ReturnAssetButton
                 assetId={a.id}
+                assetCategory={a.category}
                 assetLabel={[a.name, a.model, a.serial, a.imei_1 ? `IMEI1 ${a.imei_1}` : "", a.imei_2 ? `IMEI2 ${a.imei_2}` : ""]
                   .filter(Boolean)
                   .join(" · ")}

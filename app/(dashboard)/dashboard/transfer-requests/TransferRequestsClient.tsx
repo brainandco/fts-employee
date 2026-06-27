@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ReturnHandInPhotos } from "@/components/assets/ReturnHandInPhotos";
+import { assetCategoryRequiresConditionPhotos } from "@/lib/assets/asset-condition-photos";
 import { MIN_RESOURCE_PHOTOS } from "@/lib/resource-photos";
 
 type RequestType = "vehicle_swap" | "vehicle_replacement" | "drive_swap" | "asset_transfer";
@@ -24,7 +25,7 @@ type TransferRequest = {
 };
 
 type EmployeeOption = { id: string; full_name: string };
-type AssetOption = { id: string; name: string; serial: string | null };
+type AssetOption = { id: string; name: string; serial: string | null; category: string | null };
 type VehicleOption = { id: string; plate_number: string; make: string | null; model: string | null };
 
 function requestTypeLabel(type: RequestType): string {
@@ -97,6 +98,11 @@ export function TransferRequestsClient({
     return m;
   }, [teamLabels]);
   const assetMap = useMemo(() => new Map(myAssets.map((a) => [a.id, `${a.name}${a.serial ? ` (${a.serial})` : ""}`])), [myAssets]);
+
+  const selectedAsset = useMemo(() => myAssets.find((a) => a.id === assetId) ?? null, [myAssets, assetId]);
+  const transferNeedsPhotos = selectedAsset
+    ? assetCategoryRequiresConditionPhotos(selectedAsset.category)
+    : true;
   const vehicleLabel = (v: VehicleOption) => `${v.plate_number}${v.make ? ` - ${v.make}` : ""}${v.model ? ` ${v.model}` : ""}`;
   const filteredReplacementVehicles = useMemo(() => {
     const q = replacementVehicleSearch.trim().toLowerCase();
@@ -149,7 +155,7 @@ export function TransferRequestsClient({
     if (requestType === "asset_transfer") {
       if (!targetEmployeeId) return setFormError("Choose the DT receiving the asset.");
       if (!assetId) return setFormError("Select an asset.");
-      if (handoverUrls.length < MIN_RESOURCE_PHOTOS) {
+      if (transferNeedsPhotos && handoverUrls.length < MIN_RESOURCE_PHOTOS) {
         return setFormError(`Add at least ${MIN_RESOURCE_PHOTOS} photos of the asset’s condition before submitting.`);
       }
     }
@@ -277,7 +283,7 @@ export function TransferRequestsClient({
                     ))}
                   </select>
                 </label>
-                {assetId ? (
+                {assetId && transferNeedsPhotos ? (
                   <div className="md:col-span-2">
                     <ReturnHandInPhotos
                       purpose="asset-transfer-handover"
@@ -287,6 +293,11 @@ export function TransferRequestsClient({
                       title="Handover condition photos"
                     />
                   </div>
+                ) : null}
+                {assetId && !transferNeedsPhotos ? (
+                  <p className="text-sm text-zinc-600 md:col-span-2">
+                    No handover photos required for this accessory (e.g. cable or USB hub).
+                  </p>
                 ) : null}
                 {assetTransferDts.length === 0 ? (
                   <p className="text-sm text-amber-700 md:col-span-2">No other DTs available for transfer in your region.</p>

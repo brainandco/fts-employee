@@ -1,6 +1,7 @@
 import { getDataClient } from "@/lib/supabase/server";
 import { getRequestAuth } from "@/lib/supabase/request-auth";
 import { canEmployeeInitiateAssetReturn } from "@/lib/asset-return-eligibility";
+import { assetCategoryRequiresConditionPhotos } from "@/lib/assets/asset-condition-photos";
 import { NextResponse } from "next/server";
 import { notifyPmAndQcInRegion } from "@/lib/notifyRegionStaff";
 import { notifyAssetReturnAdmins } from "@/lib/notify-asset-return-admins";
@@ -24,7 +25,7 @@ export async function POST(req: Request) {
   const returnUrls = parseImageUrlArray(body.return_image_urls);
   if (!assetId) return NextResponse.json({ message: "asset_id required" }, { status: 400 });
   if (!employee_comment) return NextResponse.json({ message: "employee_comment is required" }, { status: 400 });
-  if (!hasMinimumPhotos(returnUrls)) {
+  if (!hasMinimumPhotos(returnUrls) && assetCategoryRequiresConditionPhotos(asset.category as string | null)) {
     return NextResponse.json({ message: "At least 2 condition photos are required when returning an asset." }, { status: 400 });
   }
 
@@ -35,7 +36,7 @@ export async function POST(req: Request) {
 
   const { data: asset, error: aErr } = await supabase
     .from("assets")
-    .select("id, assigned_to_employee_id, status, assigned_region_id")
+    .select("id, assigned_to_employee_id, status, assigned_region_id, category")
     .eq("id", assetId)
     .single();
 

@@ -235,7 +235,7 @@ export default async function TransferRequestsPage() {
 
   const { data: myAssets } = await supabase
     .from("assets")
-    .select("id, name, serial, assigned_to_employee_id, status")
+    .select("id, name, serial, category, assigned_to_employee_id, status")
     .eq("assigned_to_employee_id", employee.id)
     .eq("status", "Assigned");
 
@@ -288,7 +288,7 @@ export default async function TransferRequestsPage() {
         assetTransferDts={flattenExcludedTeams(assetTransferTeams, employee.id)}
         driveSwapDrivers={flattenExcludedTeams(vehicleSwapTeams, employee.id)}
         teamLabels={teamLabels}
-        myAssets={(myAssets ?? []).map((a) => ({ id: a.id, name: a.name, serial: a.serial }))}
+        myAssets={(myAssets ?? []).map((a) => ({ id: a.id, name: a.name, serial: a.serial, category: a.category ?? null }))}
         replacementVehicles={(replacementVehicles ?? []).map((v) => ({ id: v.id, plate_number: v.plate_number, make: v.make, model: v.model }))}
       />
     </div>

@@ -2,6 +2,7 @@ import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { getDataClient } from "@/lib/supabase/server";
 import { notifyPmAndQcInRegion } from "@/lib/notifyRegionStaff";
 import { loadPmScopeIds } from "@/lib/pm-team-assignees";
+import { assetCategoryRequiresConditionPhotos } from "@/lib/assets/asset-condition-photos";
 import { hasMinimumPhotos, parseImageUrlArray } from "@/lib/resource-photos";
 import { NextResponse } from "next/server";
 type TransferType = "vehicle_swap" | "vehicle_replacement" | "drive_swap" | "asset_transfer";
@@ -197,7 +198,15 @@ export async function POST(req: Request) {
     if (!assetIdInput || !targetEmployeeIdInput) {
       return NextResponse.json({ message: "Asset and target DT are required" }, { status: 400 });
     }
-    if (!hasMinimumPhotos(handoverUrls)) {
+    const { data: asset } = await supabase
+      .from("assets")
+      .select("id, assigned_to_employee_id, status, category")
+      .eq("id", assetIdInput)
+      .single();
+    if (!asset || asset.assigned_to_employee_id !== employee.id || asset.status !== "Assigned") {
+      return NextResponse.json({ message: "Selected asset must be assigned to you" }, { status: 400 });
+    }
+    if (assetCategoryRequiresConditionPhotos(asset.category as string | null) && !hasMinimumPhotos(handoverUrls)) {
       return NextResponse.json(
         { message: "At least 2 photos of the asset’s current condition are required for a transfer request." },
         { status: 400 }
@@ -211,15 +220,6 @@ export async function POST(req: Request) {
     const targetOkDt = (targetRoleRowsAt ?? []).some((r) => r.role === "DT" || r.role === "Self DT");
     if (!targetOkDt) return NextResponse.json({ message: "Target employee must be DT or Self DT" }, { status: 400 });
     target_team_id = null;
-
-    const { data: asset } = await supabase
-      .from("assets")
-      .select("id, assigned_to_employee_id, status")
-      .eq("id", assetIdInput)
-      .single();
-    if (!asset || asset.assigned_to_employee_id !== employee.id || asset.status !== "Assigned") {
-      return NextResponse.json({ message: "Selected asset must be assigned to you" }, { status: 400 });
-    }
     target_employee_id = targetEmp.id;
     asset_id = asset.id;
   }

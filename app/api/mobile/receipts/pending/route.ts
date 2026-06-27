@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { resolveEmployeePortalAccess } from "@/lib/auth/portal-access";
+import { assetCategoryRequiresConditionPhotos } from "@/lib/assets/asset-condition-photos";
 import { getDataClient } from "@/lib/supabase/server";
 import { getRequestAuth } from "@/lib/supabase/request-auth";
 
@@ -58,6 +59,13 @@ export async function GET(req: Request) {
       resource_id: r.resource_id,
       label,
       assigned_at: r.assigned_at,
+      asset_category: r.resource_type === "asset" ? ((assetMap.get(r.resource_id as string) as { category?: string } | undefined)?.category ?? null) : null,
+      requires_condition_photos:
+        r.resource_type === "asset"
+          ? assetCategoryRequiresConditionPhotos(
+              (assetMap.get(r.resource_id as string) as { category?: string } | undefined)?.category ?? null
+            )
+          : false,
     };
   });
 

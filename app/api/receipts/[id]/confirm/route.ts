@@ -1,5 +1,6 @@
 import { getDataClient } from "@/lib/supabase/server";
 import { getRequestAuth } from "@/lib/supabase/request-auth";
+import { assetCategoryRequiresConditionPhotos } from "@/lib/assets/asset-condition-photos";
 import { hasMinimumPhotos, parseImageUrlArray } from "@/lib/resource-photos";
 import { NextResponse } from "next/server";
 
@@ -21,7 +22,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
 
   const { data: row } = await supabase
     .from("resource_receipt_confirmations")
-    .select("id, status, resource_type")
+    .select("id, status, resource_type, resource_id")
     .eq("id", id)
     .eq("employee_id", employee.id)
     .maybeSingle();
@@ -30,7 +31,17 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     return NextResponse.json({ message: "Nothing to confirm or already confirmed." }, { status: 400 });
   }
 
+  let assetCategory: string | null = null;
   if (row.resource_type === "asset") {
+    const { data: asset } = await supabase
+      .from("assets")
+      .select("category")
+      .eq("id", row.resource_id)
+      .maybeSingle();
+    assetCategory = (asset?.category as string | null) ?? null;
+  }
+
+  if (row.resource_type === "asset" && assetCategoryRequiresConditionPhotos(assetCategory)) {
     if (!hasMinimumPhotos(receiptUrls)) {
       return NextResponse.json(
         { message: "At least 2 photos of the asset’s current condition are required to confirm receipt." },
