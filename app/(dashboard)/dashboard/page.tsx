@@ -3,6 +3,7 @@ import { getDataClient } from "@/lib/supabase/server";
 import { getOptionalAdminPortalUrl } from "@/lib/auth/portal-access";
 import Link from "next/link";
 import { canAccessPpTeamLeaveRequests, hasReportingPortalRole } from "@/lib/pp/auth";
+import { loadPmScopeIds } from "@/lib/pm-team-assignees";
 import { AssignedAssetsList } from "@/components/assets/AssignedAssetsList";
 import { ReturnVehicleButton } from "@/components/returns/ReturnVehicleButton";
 import { ReturnSimButton } from "@/components/returns/ReturnSimButton";
@@ -101,6 +102,52 @@ export default async function DashboardPage() {
   const openTasks = tasks.filter((t) => t.status !== "Completed" && t.status !== "Closed");
   const pendingReceiptCount = pendingReceiptsRes.count ?? 0;
 
+  let pmRegionEmployeeCount = 0;
+  let pmRegionAssignedAssetCount = 0;
+  let pmRegionScopeLabel = "";
+
+  if (isPm) {
+    const { allowedRegionIds } = await loadPmScopeIds(
+      supabase,
+      { id: employee.id, region_id: employee.region_id, project_id: employee.project_id },
+      session.user.id
+    );
+
+    if (allowedRegionIds.length > 0) {
+      const { count: empCount } = await supabase
+        .from("employees")
+        .select("id", { count: "exact", head: true })
+        .in("region_id", allowedRegionIds)
+        .eq("status", "ACTIVE");
+      pmRegionEmployeeCount = empCount ?? 0;
+
+      const { data: regionEmps } = await supabase
+        .from("employees")
+        .select("id")
+        .in("region_id", allowedRegionIds)
+        .eq("status", "ACTIVE");
+      const regionEmpIds = (regionEmps ?? []).map((e) => e.id as string);
+
+      if (regionEmpIds.length > 0) {
+        const { count: assetCount } = await supabase
+          .from("assets")
+          .select("id", { count: "exact", head: true })
+          .in("assigned_to_employee_id", regionEmpIds)
+          .in("status", ["Assigned", "With_QC", "Under_Maintenance", "Damaged"]);
+        pmRegionAssignedAssetCount = assetCount ?? 0;
+      }
+
+      const { data: regionRows } = await supabase.from("regions").select("name").in("id", allowedRegionIds).order("name");
+      const names = (regionRows ?? []).map((r) => r.name as string).filter(Boolean);
+      pmRegionScopeLabel =
+        names.length === 0
+          ? "your regions"
+          : names.length === 1
+            ? names[0]!
+            : `${names.length} regions (${names.join(", ")})`;
+    }
+  }
+
   return (
     <div className="space-y-6">
       {pendingReceiptCount > 0 ? (
@@ -179,6 +226,28 @@ export default async function DashboardPage() {
         </section>
       </div>
 
+      {isPm && (
+        <section className="rounded-2xl border border-indigo-200 bg-gradient-to-r from-indigo-50 to-violet-50 p-5 sm:p-6">
+          <h2 className="text-lg font-semibold text-zinc-900">Project Manager — Region overview</h2>
+          <p className="mt-1 text-sm text-zinc-600">
+            Totals for <span className="font-medium text-zinc-800">{pmRegionScopeLabel || "your regions"}</span> (primary
+            and extra PM regions from Admin).
+          </p>
+          <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:max-w-xl">
+            <div className="rounded-xl border border-indigo-200 bg-white/90 p-4">
+              <p className="text-xs font-medium uppercase tracking-wide text-indigo-700">Employees in region</p>
+              <p className="mt-1 text-3xl font-semibold text-zinc-900">{pmRegionEmployeeCount}</p>
+              <p className="mt-1 text-xs text-zinc-500">Active employees</p>
+            </div>
+            <div className="rounded-xl border border-violet-200 bg-white/90 p-4">
+              <p className="text-xs font-medium uppercase tracking-wide text-violet-700">Assets assigned in region</p>
+              <p className="mt-1 text-3xl font-semibold text-zinc-900">{pmRegionAssignedAssetCount}</p>
+              <p className="mt-1 text-xs text-zinc-500">Tools held by regional employees</p>
+            </div>
+          </div>
+        </section>
+      )}
+
       {/* PM: assets management links */}
       {isPm && (
         <section className="rounded-2xl border border-indigo-200 bg-gradient-to-r from-indigo-50 to-violet-50 p-5 sm:p-6">
@@ -186,6 +255,7 @@ export default async function DashboardPage() {
           <p className="mt-1 text-sm text-zinc-600">Assign existing assets to employees in your region, or request new assets from Admin.</p>
           <div className="mt-4 flex flex-wrap gap-3">
             <Link href="/dashboard/region-employees-assets" className="rounded border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-medium text-emerald-900 hover:bg-emerald-100">Who has assets</Link>
+            <Link href="/dashboard/receipt-confirmations" className="rounded border border-teal-200 bg-teal-50 px-4 py-2 text-sm font-medium text-teal-900 hover:bg-teal-100">Receipt confirmations</Link>
             <Link href="/dashboard/assets/assign" className="rounded border border-white bg-white px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50">Assign to employee</Link>
             <Link href="/dashboard/sims/assign" className="rounded border border-white bg-white px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50">Assign SIMs</Link>
             <Link href="/dashboard/vehicles/assign" className="rounded border border-white bg-white px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50">Assign vehicles</Link>
