@@ -38,7 +38,7 @@ export default async function EmployeeProfilePage() {
       <p className="mb-8 text-sm text-slate-600">
         {isAdminView
           ? "Update how you appear in the employee portal (admin view), your profile photo, and your password."
-          : "Change your password here. Name, phone, and email are updated by your administrator — use the request form below to ask for changes."}
+          : "Update your profile photo and password here. Name, phone, and email are updated by your administrator — use the request form below to ask for changes."}
       </p>
       {isAdminView ? (
         <EmployeeProfileSettings

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { UserAvatar } from "./UserAvatar";
 
 type Props =
@@ -34,6 +35,7 @@ const inputReadOnlyClass =
   "mt-1 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-slate-700 shadow-sm cursor-not-allowed";
 
 export function EmployeeProfileSettings(props: Props) {
+  const router = useRouter();
   const email = props.email;
   const [fullName, setFullName] = useState(props.mode === "admin_view" ? props.initialFullName ?? "" : "");
   const [avatarUrl, setAvatarUrl] = useState(props.initialAvatarUrl);
@@ -102,6 +104,7 @@ export function EmployeeProfileSettings(props: Props) {
       if (!res.ok) throw new Error(data.error || "Upload failed");
       if (typeof data.avatar_url === "string") setAvatarUrl(data.avatar_url);
       setMessage({ type: "ok", text: "Photo updated." });
+      router.refresh();
     } catch (err) {
       setMessage({ type: "err", text: err instanceof Error ? err.message : "Upload failed" });
     } finally {
@@ -118,6 +121,7 @@ export function EmployeeProfileSettings(props: Props) {
       if (!res.ok) throw new Error(data.error || "Remove failed");
       setAvatarUrl(null);
       setMessage({ type: "ok", text: "Photo removed." });
+      router.refresh();
     } catch (err) {
       setMessage({ type: "err", text: err instanceof Error ? err.message : "Remove failed" });
     } finally {
@@ -229,40 +233,36 @@ export function EmployeeProfileSettings(props: Props) {
       <section className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
         <h2 className="text-lg font-semibold text-slate-900">Profile photo</h2>
         <p className="mt-1 text-sm text-slate-600">
-          {isEmployee
-            ? "Your photo is managed by an administrator. If you need it changed, mention it in a profile update request below."
-            : "Shown in the sidebar and header. JPEG, PNG, WebP, or GIF, up to 5 MB."}
+          Shown in the sidebar and header. JPEG, PNG, WebP, or GIF, up to 5 MB.
         </p>
         <div className="mt-4 flex flex-wrap items-end gap-6">
           <UserAvatar name={displayName} email={email} avatarUrl={avatarUrl} size="lg" />
-          {isEmployee ? null : (
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-              <label className="inline-flex cursor-pointer items-center justify-center rounded-lg bg-teal-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-teal-700 disabled:opacity-50">
-                <input
-                  type="file"
-                  accept="image/jpeg,image/png,image/webp,image/gif"
-                  className="sr-only"
-                  disabled={busy}
-                  onChange={(ev) => {
-                    const f = ev.target.files?.[0];
-                    ev.target.value = "";
-                    if (f) void uploadAvatar(f);
-                  }}
-                />
-                Upload photo
-              </label>
-              {avatarUrl && (
-                <button
-                  type="button"
-                  disabled={busy}
-                  onClick={() => void removeAvatar()}
-                  className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
-                >
-                  Remove photo
-                </button>
-              )}
-            </div>
-          )}
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+            <label className="inline-flex cursor-pointer items-center justify-center rounded-lg bg-teal-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-teal-700 disabled:opacity-50">
+              <input
+                type="file"
+                accept="image/jpeg,image/png,image/webp,image/gif"
+                className="sr-only"
+                disabled={busy}
+                onChange={(ev) => {
+                  const f = ev.target.files?.[0];
+                  ev.target.value = "";
+                  if (f) void uploadAvatar(f);
+                }}
+              />
+              Upload photo
+            </label>
+            {avatarUrl && (
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => void removeAvatar()}
+                className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+              >
+                Remove photo
+              </button>
+            )}
+          </div>
         </div>
       </section>
 
@@ -272,7 +272,7 @@ export function EmployeeProfileSettings(props: Props) {
         </h2>
         <p className="mt-1 text-sm text-slate-600">
           {props.mode === "employee"
-            ? "Name, phone, and email cannot be edited here. You can change your password below. To update your details, send a request to your administrator."
+            ? "Name, phone, and email cannot be edited here — use the request form below for those. You can update your profile photo and password on this page."
             : "Your name as shown while using the employee portal in admin view."}
         </p>
         {props.mode === "employee" ? (
