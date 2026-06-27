@@ -1,17 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createServerSupabaseClient, getDataClient } from "@/lib/supabase/server";
+import { getDataClient } from "@/lib/supabase/server";
+import { getRequestAuth } from "@/lib/supabase/request-auth";
 import { createServerSupabaseAdmin } from "@/lib/supabase/admin";
 
-async function getPortalContext() {
-  const supabase = await createServerSupabaseClient();
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
-  if (!session?.user?.email) return { error: "Unauthorized" as const, supabase, session: null };
+async function getPortalContext(req: Request) {
+  const auth = await getRequestAuth(req);
+  if (!auth?.user?.email) return { error: "Unauthorized" as const, supabase: null, session: null };
 
-  const email = session.user.email.trim().toLowerCase();
+  const session = auth.session;
+  const email = auth.user.email.trim().toLowerCase();
   const admin = process.env.SUPABASE_SERVICE_ROLE_KEY ? createServerSupabaseAdmin() : null;
-  const client = admin ?? supabase;
+  const client = admin ?? (await getDataClient());
 
   const { data: employee } = await client
     .from("employees")
@@ -28,12 +27,11 @@ async function getPortalContext() {
   const isAdminView = !!userProfile && userProfile.status === "ACTIVE" && !employee;
 
   if (!isEmployee && !isAdminView) {
-    return { error: "Forbidden" as const, supabase, session: null };
+    return { error: "Forbidden" as const, session: null };
   }
 
   return {
     error: null,
-    supabase,
     session,
     email,
     employeeId: employee?.id ?? null,
@@ -45,7 +43,7 @@ async function getPortalContext() {
 
 /** PATCH: admin view only — update display name on users_profile. Employees use a change request instead. */
 export async function PATCH(request: NextRequest) {
-  const ctx = await getPortalContext();
+  const ctx = await getPortalContext(request);
   if (ctx.error || !ctx.session) {
     return NextResponse.json({ error: ctx.error ?? "Unauthorized" }, { status: 401 });
   }

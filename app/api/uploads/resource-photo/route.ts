@@ -1,7 +1,7 @@
 import { randomUUID } from "crypto";
 import { NextResponse } from "next/server";
-import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { getDataClient } from "@/lib/supabase/server";
+import { getRequestAuth } from "@/lib/supabase/request-auth";
 import { createServerSupabaseAdmin } from "@/lib/supabase/admin";
 
 const MAX_BYTES = 5 * 1024 * 1024;
@@ -11,11 +11,8 @@ const ALLOWED_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
  * Employee uploads condition photos: returns, receipt confirmation (assets), or asset-transfer handover.
  */
 export async function POST(req: Request) {
-  const userClient = await createServerSupabaseClient();
-  const {
-    data: { session },
-  } = await userClient.auth.getSession();
-  if (!session) return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
+  const auth = await getRequestAuth(req);
+  if (!auth) return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
 
   const formData = await req.formData().catch(() => null);
   if (!formData) return NextResponse.json({ message: "Invalid form data" }, { status: 400 });
@@ -36,7 +33,7 @@ export async function POST(req: Request) {
   }
 
   const supabase = await getDataClient();
-  const email = (session.user.email ?? "").trim().toLowerCase();
+  const email = (auth.user.email ?? "").trim().toLowerCase();
   const { data: employee } = await supabase.from("employees").select("id").eq("email", email).maybeSingle();
   if (!employee) return NextResponse.json({ message: "Employee not found" }, { status: 403 });
 

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createServerSupabaseClient, getDataClient } from "@/lib/supabase/server";
+import { getDataClient } from "@/lib/supabase/server";
+import { getRequestAuth } from "@/lib/supabase/request-auth";
 import { createServerSupabaseAdmin } from "@/lib/supabase/admin";
 import { notifyUsersWhoManageEmployees } from "@/lib/notify-employee-managers";
 
@@ -13,16 +14,13 @@ function isPlausibleEmail(s: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s);
 }
 
-async function employeeContext() {
-  const supabase = await createServerSupabaseClient();
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
-  if (!session?.user?.email) return { error: "Unauthorized" as const };
+async function employeeContext(req: Request) {
+  const auth = await getRequestAuth(req);
+  if (!auth?.user.email) return { error: "Unauthorized" as const };
 
-  const email = session.user.email.trim().toLowerCase();
+  const email = auth.user.email.trim().toLowerCase();
   const admin = process.env.SUPABASE_SERVICE_ROLE_KEY ? createServerSupabaseAdmin() : null;
-  const client = admin ?? supabase;
+  const client = admin ?? (await getDataClient());
 
   const { data: employee } = await client
     .from("employees")
@@ -43,15 +41,15 @@ async function employeeContext() {
 
   return {
     error: null,
-    session,
+    session: auth.session,
     employee: employee!,
     dataClient: await getDataClient(),
   };
 }
 
 /** GET: this employee's recent profile update requests. */
-export async function GET() {
-  const ctx = await employeeContext();
+export async function GET(req: Request) {
+  const ctx = await employeeContext(req);
   if (ctx.error) return NextResponse.json({ error: ctx.error }, { status: ctx.error === "Forbidden" ? 403 : 401 });
 
   const { data: rows, error } = await ctx.dataClient
@@ -69,7 +67,7 @@ export async function GET() {
 
 /** POST: submit a new request (at least one of name / phone / email with new values). */
 export async function POST(request: NextRequest) {
-  const ctx = await employeeContext();
+  const ctx = await employeeContext(request);
   if (ctx.error) return NextResponse.json({ error: ctx.error }, { status: ctx.error === "Forbidden" ? 403 : 401 });
 
   let body: Record<string, unknown>;

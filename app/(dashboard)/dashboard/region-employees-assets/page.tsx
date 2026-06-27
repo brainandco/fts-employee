@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createServerSupabaseClient, getDataClient } from "@/lib/supabase/server";
+import { loadAssetReceiptStatusMap } from "@/lib/assets/asset-receipt-status";
 import {
   RegionEmployeesWithAssetsClient,
   type EmployeeWithAssets,
@@ -74,8 +75,21 @@ export default async function RegionEmployeesWithAssetsPage() {
       serial: a.serial,
       category: a.category,
       status: a.status,
+      receiptStatus: null,
     });
     assetsByEmp.set(eid, list);
+  }
+
+  const assetIds = [...new Set((assignedAssets ?? []).map((a) => a.id))];
+  const receiptMap = await loadAssetReceiptStatusMap(supabase, empIds, assetIds);
+  for (const [eid, lines] of assetsByEmp) {
+    assetsByEmp.set(
+      eid,
+      lines.map((line) => ({
+        ...line,
+        receiptStatus: receiptMap.get(`${eid}:${line.id}`) ?? null,
+      }))
+    );
   }
 
   const withAssetsList: EmployeeWithAssets[] = (regionEmps ?? [])
@@ -110,8 +124,9 @@ export default async function RegionEmployeesWithAssetsPage() {
             <h1 className="mt-1 text-3xl font-bold tracking-tight text-zinc-900">Who has assets</h1>
             <p className="mt-2 max-w-2xl text-sm leading-relaxed text-zinc-600">
               Active colleagues in <span className="font-semibold text-zinc-800">{regionLabel}</span> who currently hold
-              at least one tool (including under maintenance, damaged, or with QC while still on assignment). Search by
-              person, email, model, serial, or type.
+              at least one tool (including under maintenance, damaged, or with QC while still on assignment). Each asset
+              shows whether the employee has confirmed receipt or it is still pending. Search by person, email, model,
+              serial, type, or receipt status.
             </p>
           </div>
         </div>

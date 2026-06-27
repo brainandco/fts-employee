@@ -1,4 +1,5 @@
-import { createServerSupabaseClient, getDataClient } from "@/lib/supabase/server";
+import { getDataClient } from "@/lib/supabase/server";
+import { getRequestAuth } from "@/lib/supabase/request-auth";
 import { NextResponse } from "next/server";
 import { inclusiveCalendarDays } from "@/lib/employee-requests/leave-metrics";
 import { getEmployeeRolesDisplay, getPortalRolesDisplay } from "@/lib/employee-roles-display";
@@ -35,11 +36,9 @@ async function regionAndProjectNames(
  * Other employees: assigned assets/SIMs must be returned before leave unless it is a single-day Sick or Casual request.
  */
 export async function POST(req: Request) {
-  const userClient = await createServerSupabaseClient();
-  const {
-    data: { session },
-  } = await userClient.auth.getSession();
-  if (!session) return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
+  const auth = await getRequestAuth(req);
+  if (!auth) return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
+  const session = auth.session;
 
   const body = await req.json().catch(() => ({}));
   const from_date = typeof body.from_date === "string" ? body.from_date.trim() : "";

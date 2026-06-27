@@ -14,8 +14,41 @@ type Asset = {
   imei_2: string | null;
   status: string;
 };
+type SearchCatalogAsset = Asset & {
+  assigneeName: string | null;
+  assigned_to_employee_id?: string | null;
+};
 type Assignee = { id: string; label: string };
 type ViewerRole = "pm" | "admin";
+
+function assetTypeKey(a: Pick<Asset, "category">): string {
+  return (a.category || "Other").trim() || "Other";
+}
+
+function catalogAvailabilityLabel(
+  hit: SearchCatalogAsset,
+  assignableIds: Set<string>,
+  visibleAssignableIds: Set<string>,
+  activeType: string
+): { text: string; className: string } {
+  const inPool = hit.status === "Available" && !hit.assigned_to_employee_id;
+  if (inPool && assignableIds.has(hit.id)) {
+    if (visibleAssignableIds.has(hit.id)) {
+      return { text: "In pool — available (listed below)", className: "text-emerald-700" };
+    }
+    if (activeType !== "All" && assetTypeKey(hit) !== activeType) {
+      return { text: `In pool — switch type tab to “${assetTypeKey(hit)}”`, className: "text-emerald-700" };
+    }
+    return { text: "In pool — available", className: "text-emerald-700" };
+  }
+  if (hit.assigneeName) {
+    return { text: `Assigned to ${hit.assigneeName}`, className: "text-amber-800 font-medium" };
+  }
+  if (inPool) {
+    return { text: "In pool", className: "text-emerald-700" };
+  }
+  return { text: hit.status.replace(/_/g, " "), className: "text-zinc-600" };
+}
 
 function matchesSearch(a: Asset, q: string): boolean {
   const tokens = q.trim().toLowerCase().split(/\s+/).filter(Boolean);
@@ -28,10 +61,12 @@ function matchesSearch(a: Asset, q: string): boolean {
 
 export function PmAssignToEmployeeClient({
   assets,
+  searchCatalog,
   assignees,
   viewerRole = "pm",
 }: {
   assets: Asset[];
+  searchCatalog: SearchCatalogAsset[];
   assignees: Assignee[];
   viewerRole?: ViewerRole;
 }) {
@@ -61,9 +96,17 @@ export function PmAssignToEmployeeClient({
 
   const filteredAssets = useMemo(() => {
     const byType =
-      activeType === "All" ? assets : assets.filter((a) => ((a.category || "Other").trim() || "Other") === activeType);
+      activeType === "All" ? assets : assets.filter((a) => assetTypeKey(a) === activeType);
     return byType.filter((a) => matchesSearch(a, search));
   }, [assets, activeType, search]);
+
+  const assignableIds = useMemo(() => new Set(assets.map((a) => a.id)), [assets]);
+  const visibleAssignableIds = useMemo(() => new Set(filteredAssets.map((a) => a.id)), [filteredAssets]);
+
+  const catalogHits = useMemo(() => {
+    if (!search.trim()) return [];
+    return searchCatalog.filter((a) => matchesSearch(a, search)).slice(0, 30);
+  }, [searchCatalog, search]);
 
   const assetById = useMemo(() => new Map(assets.map((a) => [a.id, a])), [assets]);
 
@@ -150,10 +193,56 @@ export function PmAssignToEmployeeClient({
     router.refresh();
   }
 
-  if (assets.length === 0) {
+  if (assets.length === 0 && searchCatalog.length === 0) {
     return (
       <div className="rounded-xl border border-zinc-200 bg-white p-8 text-center">
         <p className="text-zinc-600">No available assets in the pool for assignment. Request new assets from Admin or check regional asset pool settings.</p>
+      </div>
+    );
+  }
+
+  if (assets.length === 0) {
+    return (
+      <div className="space-y-4">
+        <div className="rounded-xl border border-amber-200 bg-amber-50/60 p-4 text-sm text-amber-950">
+          No assets are currently available in the pool. Use search below to see if a tool is already assigned to someone.
+        </div>
+        <div className="rounded-2xl border border-zinc-200 bg-white p-3">
+          <label htmlFor="assign-asset-search" className="mb-1 block text-xs font-semibold uppercase tracking-wide text-zinc-500">
+            Search
+          </label>
+          <input
+            id="assign-asset-search"
+            type="search"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Serial, model, IMEI, name, or type…"
+            className="w-full max-w-md rounded border border-zinc-300 px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400"
+            autoComplete="off"
+          />
+        </div>
+        {search.trim() && catalogHits.length > 0 ? (
+          <div className="rounded-2xl border border-sky-200 bg-sky-50/60 p-4">
+            <h3 className="text-sm font-semibold text-sky-950">Search results in your scope</h3>
+            <ul className="mt-3 space-y-2">
+              {catalogHits.map((hit) => {
+                const avail = catalogAvailabilityLabel(hit, assignableIds, visibleAssignableIds, activeType);
+                return (
+                  <li key={hit.id} className="rounded-xl border border-sky-100 bg-white px-3 py-2.5 text-sm shadow-sm">
+                    <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+                      <span className="font-medium text-zinc-900">{hit.serial ?? hit.name ?? hit.model ?? "Asset"}</span>
+                      <span className={`text-xs ${avail.className}`}>{avail.text}</span>
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        ) : search.trim() ? (
+          <div className="rounded-xl border border-zinc-200 bg-white p-6 text-sm text-zinc-500">
+            No assets in your scope match this search.
+          </div>
+        ) : null}
       </div>
     );
   }
@@ -305,10 +394,47 @@ export function PmAssignToEmployeeClient({
       </div>
       {message && <p className="text-sm text-emerald-600">{message}</p>}
       {error && <p className="text-sm text-red-600">{error}</p>}
+
+      {search.trim() && catalogHits.length > 0 ? (
+        <div className="rounded-2xl border border-sky-200 bg-sky-50/60 p-4">
+          <h3 className="text-sm font-semibold text-sky-950">Search results in your scope</h3>
+          <p className="mt-1 text-xs text-sky-900/80">
+            Pool items can be assigned below. Already-assigned tools show who holds them — you cannot select those here.
+          </p>
+          <ul className="mt-3 space-y-2">
+            {catalogHits.map((hit) => {
+              const avail = catalogAvailabilityLabel(hit, assignableIds, visibleAssignableIds, activeType);
+              return (
+                <li
+                  key={hit.id}
+                  className="rounded-xl border border-sky-100 bg-white px-3 py-2.5 text-sm shadow-sm"
+                >
+                  <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+                    <span className="font-medium text-zinc-900">
+                      {hit.serial ?? hit.name ?? hit.model ?? "Asset"}
+                      {hit.model && hit.serial ? (
+                        <span className="ml-2 font-normal text-zinc-600">{hit.model}</span>
+                      ) : null}
+                    </span>
+                    <span className={`text-xs ${avail.className}`}>{avail.text}</span>
+                  </div>
+                  <p className="mt-1 text-xs text-zinc-500">
+                    {hit.category ?? "—"}
+                    {hit.imei_1 ? ` · IMEI ${hit.imei_1}` : ""}
+                  </p>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      ) : null}
+
       {filteredAssets.length === 0 ? (
         <div className="rounded-xl border border-zinc-200 bg-white p-6 text-sm text-zinc-500">
           {search.trim()
-            ? "No assets match your search. Try another term or clear search."
+            ? catalogHits.length > 0
+              ? "No assignable pool items match this search with the current type filter. See search results above."
+              : "No assets in your scope match this search."
             : "No assets found in this type."}
         </div>
       ) : null}

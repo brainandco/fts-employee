@@ -38,17 +38,34 @@ export default async function PmAssignAssetPage() {
     imei_1: string | null;
     imei_2: string | null;
     status: string;
+    assigned_to_employee_id?: string | null;
   };
+  type CatalogRow = AssetRow & { assigneeName: string | null };
   let assets: AssetRow[] = [];
+  let searchCatalog: CatalogRow[] = [];
   let assignees: { id: string; label: string }[] = [];
 
+  async function attachAssigneeNames(rows: AssetRow[]): Promise<CatalogRow[]> {
+    const empIds = [...new Set(rows.map((r) => r.assigned_to_employee_id).filter(Boolean) as string[])];
+    const { data: emps } = empIds.length
+      ? await supabase.from("employees").select("id, full_name, email").in("id", empIds)
+      : { data: [] as { id: string; full_name: string | null; email: string | null }[] };
+    const nameById = new Map(
+      (emps ?? []).map((e) => [e.id, (e.full_name ?? e.email ?? "Employee").trim() || "Employee"])
+    );
+    return rows.map((r) => ({
+      ...r,
+      assigneeName: r.assigned_to_employee_id ? (nameById.get(r.assigned_to_employee_id) ?? "Employee") : null,
+    }));
+  }
+
   if (isPortalAdmin) {
-    const { data: rows } = await supabase
+    const { data: catalogRows } = await supabase
       .from("assets")
-      .select("id, name, category, model, serial, imei_1, imei_2, status")
-      .eq("status", "Available")
+      .select("id, name, category, model, serial, imei_1, imei_2, status, assigned_to_employee_id")
       .order("name");
-    assets = rows ?? [];
+    searchCatalog = await attachAssigneeNames(catalogRows ?? []);
+    assets = searchCatalog.filter((a) => a.status === "Available");
     assignees = await loadAllRegionEmployeeAssigneeOptions(supabase, {
       excludeQc: true,
       vehicleDriversOnly: false,
@@ -65,13 +82,13 @@ export default async function PmAssignAssetPage() {
         ? `assigned_region_id.is.null,assigned_region_id.in.(${allowedRegionIds.join(",")})`
         : "assigned_region_id.is.null";
 
-    const { data: rows } = await supabase
+    const { data: catalogRows } = await supabase
       .from("assets")
-      .select("id, name, category, model, serial, imei_1, imei_2, status")
-      .eq("status", "Available")
+      .select("id, name, category, model, serial, imei_1, imei_2, status, assigned_to_employee_id")
       .or(assetsRegionOr)
       .order("name");
-    assets = rows ?? [];
+    searchCatalog = await attachAssigneeNames(catalogRows ?? []);
+    assets = searchCatalog.filter((a) => a.status === "Available");
     assignees = await loadPmRegionEmployeeOptions(supabase, pmCtx, session.user.id, {
       excludeQc: true,
       vehicleDriversOnly: false,
@@ -135,7 +152,12 @@ export default async function PmAssignAssetPage() {
           )}
         </div>
       </div>
-      <PmAssignToEmployeeClient assets={assets ?? []} assignees={assignees} viewerRole={viewerRole} />
+      <PmAssignToEmployeeClient
+        assets={assets ?? []}
+        searchCatalog={searchCatalog}
+        assignees={assignees}
+        viewerRole={viewerRole}
+      />
     </div>
   );
 }

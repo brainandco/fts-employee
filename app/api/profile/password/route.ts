@@ -1,15 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
+import { createClient } from "@supabase/supabase-js";
 import { createServerSupabaseAdmin } from "@/lib/supabase/admin";
-import { createServerSupabaseClient } from "@/lib/supabase/server";
+import { getRequestAuth } from "@/lib/supabase/request-auth";
+import { getSupabaseUrlAndAnonKey } from "@/lib/supabase/public-env";
 
 export async function POST(request: NextRequest) {
-  const supabase = await createServerSupabaseClient();
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
-  if (!session?.user?.email) {
+  const auth = await getRequestAuth(request);
+  if (!auth?.user?.email) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+  const session = auth.session;
 
   let body: { current_password?: unknown; new_password?: unknown };
   try {
@@ -29,6 +29,13 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  const env = getSupabaseUrlAndAnonKey();
+  if (!env) return NextResponse.json({ error: "Server misconfigured" }, { status: 500 });
+
+  const supabase = createClient(env.url, env.anonKey, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+
   const { error: signErr } = await supabase.auth.signInWithPassword({
     email: session.user.email,
     password: current_password,
@@ -37,7 +44,12 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Current password is incorrect." }, { status: 400 });
   }
 
-  const { error: updErr } = await supabase.auth.updateUser({ password: new_password });
+  const authed = createClient(env.url, env.anonKey, {
+    global: { headers: { Authorization: `Bearer ${session.access_token}` } },
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+
+  const { error: updErr } = await authed.auth.updateUser({ password: new_password });
   if (updErr) {
     return NextResponse.json({ error: updErr.message }, { status: 400 });
   }

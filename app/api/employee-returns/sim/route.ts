@@ -1,5 +1,5 @@
-import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { getDataClient } from "@/lib/supabase/server";
+import { getRequestAuth } from "@/lib/supabase/request-auth";
 import { NextResponse } from "next/server";
 import { notifyPmAndQcInRegion } from "@/lib/notifyRegionStaff";
 import { deleteReceiptForResource } from "@/lib/resource-receipts";
@@ -8,11 +8,9 @@ import { deleteReceiptForResource } from "@/lib/resource-receipts";
  * Employee returns an assigned SIM to inventory (QC/PM notified).
  */
 export async function POST(req: Request) {
-  const userClient = await createServerSupabaseClient();
-  const {
-    data: { session },
-  } = await userClient.auth.getSession();
-  if (!session) return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
+  const auth = await getRequestAuth(req);
+  if (!auth) return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
+  const session = auth.session;
 
   const body = await req.json().catch(() => ({}));
   const sim_id = typeof body.sim_id === "string" ? body.sim_id.trim() : "";

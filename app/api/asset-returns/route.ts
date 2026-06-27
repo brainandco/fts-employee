@@ -1,5 +1,5 @@
-import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { getDataClient } from "@/lib/supabase/server";
+import { getRequestAuth } from "@/lib/supabase/request-auth";
 import { canEmployeeInitiateAssetReturn } from "@/lib/asset-return-eligibility";
 import { NextResponse } from "next/server";
 import { notifyPmAndQcInRegion } from "@/lib/notifyRegionStaff";
@@ -12,9 +12,9 @@ import { hasMinimumPhotos, parseImageUrlArray } from "@/lib/resource-photos";
  * Creates asset_return_requests (pending) and sets asset to Pending_Return, unassigned.
  */
 export async function POST(req: Request) {
-  const userClient = await createServerSupabaseClient();
-  const { data: { session } } = await userClient.auth.getSession();
-  if (!session) return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
+  const auth = await getRequestAuth(req);
+  if (!auth) return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
+  const session = auth.session;
 
   const body = await req.json().catch(() => ({}));
   const assetId = typeof body.asset_id === "string" ? body.asset_id.trim() : "";
