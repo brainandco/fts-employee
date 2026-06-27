@@ -25,9 +25,6 @@ export async function POST(req: Request) {
   const returnUrls = parseImageUrlArray(body.return_image_urls);
   if (!assetId) return NextResponse.json({ message: "asset_id required" }, { status: 400 });
   if (!employee_comment) return NextResponse.json({ message: "employee_comment is required" }, { status: 400 });
-  if (!hasMinimumPhotos(returnUrls) && assetCategoryRequiresConditionPhotos(asset.category as string | null)) {
-    return NextResponse.json({ message: "At least 2 condition photos are required when returning an asset." }, { status: 400 });
-  }
 
   const supabase = await getDataClient();
   const email = (session.user.email ?? "").trim().toLowerCase();
@@ -52,6 +49,9 @@ export async function POST(req: Request) {
       },
       { status: 400 }
     );
+  }
+  if (!hasMinimumPhotos(returnUrls) && assetCategoryRequiresConditionPhotos(asset.category as string | null)) {
+    return NextResponse.json({ message: "At least 2 condition photos are required when returning an asset." }, { status: 400 });
   }
 
   const { data: existingPending } = await supabase

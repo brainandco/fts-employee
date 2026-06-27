@@ -3,6 +3,7 @@ import { resolveEmployeePortalAccess } from "@/lib/auth/portal-access";
 import { loadEmployeeWorkInfo } from "@/lib/mobile/employee-work-info";
 import { isPendingLeaveStatus, mapLeaveApprovalRow } from "@/lib/mobile/leave-requests";
 import { loadPmRegionStats } from "@/lib/mobile/pm-region-stats";
+import { computeTransferAccess } from "@/lib/transfer-requests/access";
 import { getDataClient } from "@/lib/supabase/server";
 import { getRequestAuth } from "@/lib/supabase/request-auth";
 
@@ -39,7 +40,9 @@ export async function GET(req: Request) {
   const employeeId = access.employeeId;
 
   const { data: roles } = await supabase.from("employee_roles").select("role").eq("employee_id", employeeId);
-  const isPm = (roles ?? []).some((r) => r.role === "Project Manager");
+  const roleSet = new Set((roles ?? []).map((r) => r.role as string));
+  const isPm = roleSet.has("Project Manager");
+  const transferAccess = computeTransferAccess(roleSet);
 
   const [
     pendingReceiptRes,
@@ -132,6 +135,10 @@ export async function GET(req: Request) {
     mode: "employee" as const,
     fullName: access.fullName,
     isPm,
+    canAccessTransfers: transferAccess.canRequest || transferAccess.canReview,
+    canRequestAssetTransfer: transferAccess.canRequestAssetTransfer,
+    canRequestVehicleFlows: transferAccess.canRequestVehicleFlows,
+    canReviewTransfers: transferAccess.canReview,
     pendingReceiptCount: pendingReceiptRes.count ?? 0,
     assignedAssetCount: (assetsRes.data ?? []).length,
     assignedSimCount: (simsRes.data ?? []).length,

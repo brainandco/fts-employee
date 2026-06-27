@@ -1,5 +1,5 @@
-import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { getDataClient } from "@/lib/supabase/server";
+import { getRequestAuth } from "@/lib/supabase/request-auth";
 import { notifyPmAndQcInRegion } from "@/lib/notifyRegionStaff";
 import { loadPmScopeIds } from "@/lib/pm-team-assignees";
 import { assetCategoryRequiresConditionPhotos } from "@/lib/assets/asset-condition-photos";
@@ -9,12 +9,10 @@ type TransferType = "vehicle_swap" | "vehicle_replacement" | "drive_swap" | "ass
 
 const REQUEST_TYPES: TransferType[] = ["vehicle_swap", "vehicle_replacement", "drive_swap", "asset_transfer"];
 
-export async function GET() {
-  const userClient = await createServerSupabaseClient();
-  const {
-    data: { session },
-  } = await userClient.auth.getSession();
-  if (!session) return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
+export async function GET(req: Request) {
+  const auth = await getRequestAuth(req);
+  if (!auth) return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
+  const session = auth.session;
 
   const supabase = await getDataClient();
   const email = (session.user.email ?? "").trim().toLowerCase();
@@ -71,11 +69,9 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
-  const userClient = await createServerSupabaseClient();
-  const {
-    data: { session },
-  } = await userClient.auth.getSession();
-  if (!session) return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
+  const auth = await getRequestAuth(req);
+  if (!auth) return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
+  const session = auth.session;
 
   const body = await req.json().catch(() => ({}));
   const request_type_input = typeof body.request_type === "string" ? body.request_type : "";

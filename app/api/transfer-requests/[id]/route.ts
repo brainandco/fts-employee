@@ -1,5 +1,5 @@
-import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { getDataClient } from "@/lib/supabase/server";
+import { getRequestAuth } from "@/lib/supabase/request-auth";
 import { getPmReviewerScopeRegionIds } from "@/lib/pm-team-assignees";
 import { NextResponse } from "next/server";
 
@@ -17,11 +17,9 @@ type PendingTransfer = {
 };
 
 export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
-  const userClient = await createServerSupabaseClient();
-  const {
-    data: { session },
-  } = await userClient.auth.getSession();
-  if (!session) return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
+  const auth = await getRequestAuth(req);
+  if (!auth) return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
+  const session = auth.session;
 
   const { id } = await params;
   const body = await req.json().catch(() => ({}));
