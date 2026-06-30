@@ -104,8 +104,8 @@ export function PmProjectTypeAssetCards({ overview }: { overview: PmProjectTypeA
         </p>
       </div>
       <p className="mt-3 text-xs text-zinc-500">
-        Grouped by employee project (MS / Rollout / Other) and by brand + category. Counts include every asset you
-        assigned — not split by individual model.
+        Every asset you assigned (by your login), still on an employee. Grouped by assignee&apos;s project (MS /
+        Rollout / Other) and brand + category (all mobile types count as Mobile). Receipt: confirmed vs pending.
       </p>
       <div className="mt-3 grid gap-3 lg:grid-cols-3">
         <ProjectTypeCard bucket={overview.ms} />
