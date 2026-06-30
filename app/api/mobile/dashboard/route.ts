@@ -3,7 +3,7 @@ import { resolveEmployeePortalAccess } from "@/lib/auth/portal-access";
 import { loadEmployeeWorkInfo } from "@/lib/mobile/employee-work-info";
 import { isPendingLeaveStatus, mapLeaveApprovalRow } from "@/lib/mobile/leave-requests";
 import { loadPmRegionStats } from "@/lib/mobile/pm-region-stats";
-import { loadPmProjectTypeAssetOverview } from "@/lib/pm/pm-project-type-asset-stats";
+import type { PmProjectTypeAssetOverview } from "@/lib/pm/pm-project-type-asset-stats";
 import { computeTransferAccess } from "@/lib/transfer-requests/access";
 import { getDataClient } from "@/lib/supabase/server";
 import { getRequestAuth } from "@/lib/supabase/request-auth";
@@ -87,7 +87,9 @@ export async function GET(req: Request) {
   let pmRegionAssignedAssetCount: number | null = null;
   let pmRegionScopeLabel: string | null = null;
   let pmAssetsByCategory: { category: string; count: number }[] | null = null;
-  let pmProjectTypeAssets: Awaited<ReturnType<typeof loadPmProjectTypeAssetOverview>> | null = null;
+  let pmProjectTypeAssets: PmProjectTypeAssetOverview | null = null;
+  let pmAssignedAssetConfirmedCount: number | null = null;
+  let pmAssignedAssetPendingCount: number | null = null;
   let pmPendingAssetReturns: number | null = null;
   let pmPendingQcRequests: number | null = null;
 
@@ -97,16 +99,14 @@ export async function GET(req: Request) {
       { id: employee.id, region_id: employee.region_id, project_id: employee.project_id },
       auth.user.id
     );
-    pmProjectTypeAssets = await loadPmProjectTypeAssetOverview(
-      supabase,
-      { id: employee.id, region_id: employee.region_id, project_id: employee.project_id },
-      auth.user.id
-    );
     if (pmStats) {
       pmRegionEmployeeCount = pmStats.employeeCount;
       pmRegionAssignedAssetCount = pmStats.assignedAssetCount;
+      pmAssignedAssetConfirmedCount = pmStats.assignedAssetConfirmedCount;
+      pmAssignedAssetPendingCount = pmStats.assignedAssetPendingCount;
       pmRegionScopeLabel = pmStats.scopeLabel;
       pmAssetsByCategory = pmStats.assetsByCategory;
+      pmProjectTypeAssets = pmStats.assignmentOverview;
       pmPendingAssetReturns = pmStats.pendingAssetReturns;
       pmPendingQcRequests = pmStats.pendingQcRequests;
     }
@@ -159,6 +159,8 @@ export async function GET(req: Request) {
     pmRegionScopeLabel,
     pmAssetsByCategory,
     pmProjectTypeAssets,
+    pmAssignedAssetConfirmedCount,
+    pmAssignedAssetPendingCount,
     pmPendingAssetReturns,
     pmPendingQcRequests,
     work,

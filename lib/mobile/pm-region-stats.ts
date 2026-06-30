@@ -1,5 +1,11 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { loadPmScopeIds } from "@/lib/pm-team-assignees";
+import {
+  loadPmProjectTypeAssetOverview,
+  pmOverviewToCategoryCounts,
+  emptyPmProjectTypeAssetOverview,
+  type PmProjectTypeAssetOverview,
+} from "@/lib/pm/pm-project-type-asset-stats";
 
 export type PmAssetCategoryCount = { category: string; count: number };
 
@@ -7,12 +13,13 @@ export type PmRegionStats = {
   scopeLabel: string;
   employeeCount: number;
   assignedAssetCount: number;
+  assignedAssetConfirmedCount: number;
+  assignedAssetPendingCount: number;
   assetsByCategory: PmAssetCategoryCount[];
+  assignmentOverview: PmProjectTypeAssetOverview;
   pendingAssetReturns: number;
   pendingQcRequests: number;
 };
-
-const ASSIGNED_STATUSES = ["Assigned", "With_QC", "Under_Maintenance", "Damaged"] as const;
 
 export async function loadPmRegionStats(
   supabase: SupabaseClient,
@@ -25,7 +32,10 @@ export async function loadPmRegionStats(
       scopeLabel: "No region scope",
       employeeCount: 0,
       assignedAssetCount: 0,
+      assignedAssetConfirmedCount: 0,
+      assignedAssetPendingCount: 0,
       assetsByCategory: [],
+      assignmentOverview: emptyPmProjectTypeAssetOverview(),
       pendingAssetReturns: 0,
       pendingQcRequests: 0,
     };
@@ -44,27 +54,11 @@ export async function loadPmRegionStats(
     .eq("status", "ACTIVE");
   const regionEmpIds = (regionEmps ?? []).map((e) => e.id as string);
 
-  let assignedAssetCount = 0;
-  const categoryMap = new Map<string, number>();
-
-  if (regionEmpIds.length > 0 && authUserId) {
-    const { data: assignedAssets } = await supabase
-      .from("assets")
-      .select("category")
-      .in("assigned_to_employee_id", regionEmpIds)
-      .eq("assigned_by", authUserId)
-      .in("status", [...ASSIGNED_STATUSES]);
-
-    assignedAssetCount = (assignedAssets ?? []).length;
-    for (const a of assignedAssets ?? []) {
-      const cat = ((a.category as string | null) ?? "").trim() || "Other";
-      categoryMap.set(cat, (categoryMap.get(cat) ?? 0) + 1);
-    }
-  }
-
-  const assetsByCategory = [...categoryMap.entries()]
-    .map(([category, count]) => ({ category, count }))
-    .sort((a, b) => b.count - a.count || a.category.localeCompare(b.category));
+  const overview = await loadPmProjectTypeAssetOverview(supabase, employee, authUserId);
+  const assignedAssetCount = overview.grandTotal;
+  const assignedAssetConfirmedCount = overview.grandConfirmed;
+  const assignedAssetPendingCount = overview.grandPending;
+  const assetsByCategory = pmOverviewToCategoryCounts(overview);
 
   let pendingAssetReturns = 0;
   if (allowedRegionIds.length > 0) {
@@ -103,7 +97,10 @@ export async function loadPmRegionStats(
     scopeLabel,
     employeeCount: empCount ?? 0,
     assignedAssetCount,
+    assignedAssetConfirmedCount,
+    assignedAssetPendingCount,
     assetsByCategory,
+    assignmentOverview: overview,
     pendingAssetReturns,
     pendingQcRequests,
   };

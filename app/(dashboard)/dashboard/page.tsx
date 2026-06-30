@@ -4,7 +4,7 @@ import { getOptionalAdminPortalUrl } from "@/lib/auth/portal-access";
 import Link from "next/link";
 import { canAccessPpTeamLeaveRequests, hasReportingPortalRole } from "@/lib/pp/auth";
 import { loadPmScopeIds } from "@/lib/pm-team-assignees";
-import { loadPmProjectTypeAssetOverview } from "@/lib/pm/pm-project-type-asset-stats";
+import { loadPmProjectTypeAssetOverview, type PmProjectTypeAssetOverview } from "@/lib/pm/pm-project-type-asset-stats";
 import { PmProjectTypeAssetCards } from "@/components/pm/PmProjectTypeAssetCards";
 import { AssignedAssetsList } from "@/components/assets/AssignedAssetsList";
 import { ReturnVehicleButton } from "@/components/returns/ReturnVehicleButton";
@@ -107,7 +107,7 @@ export default async function DashboardPage() {
   let pmRegionEmployeeCount = 0;
   let pmRegionAssignedAssetCount = 0;
   let pmRegionScopeLabel = "";
-  let pmProjectTypeAssets: Awaited<ReturnType<typeof loadPmProjectTypeAssetOverview>> | null = null;
+  let pmProjectTypeAssets: PmProjectTypeAssetOverview | null = null;
 
   if (isPm) {
     const { allowedRegionIds } = await loadPmScopeIds(
@@ -121,6 +121,7 @@ export default async function DashboardPage() {
       { id: employee.id, region_id: employee.region_id, project_id: employee.project_id },
       session.user.id
     );
+    pmRegionAssignedAssetCount = pmProjectTypeAssets.grandTotal;
 
     if (allowedRegionIds.length > 0) {
       const { count: empCount } = await supabase
@@ -129,23 +130,6 @@ export default async function DashboardPage() {
         .in("region_id", allowedRegionIds)
         .eq("status", "ACTIVE");
       pmRegionEmployeeCount = empCount ?? 0;
-
-      const { data: regionEmps } = await supabase
-        .from("employees")
-        .select("id")
-        .in("region_id", allowedRegionIds)
-        .eq("status", "ACTIVE");
-      const regionEmpIds = (regionEmps ?? []).map((e) => e.id as string);
-
-      if (regionEmpIds.length > 0) {
-        const { count: assetCount } = await supabase
-          .from("assets")
-          .select("id", { count: "exact", head: true })
-          .in("assigned_to_employee_id", regionEmpIds)
-          .eq("assigned_by", session.user.id)
-          .in("status", ["Assigned", "With_QC", "Under_Maintenance", "Damaged"]);
-        pmRegionAssignedAssetCount = assetCount ?? 0;
-      }
 
       const { data: regionRows } = await supabase.from("regions").select("name").in("id", allowedRegionIds).order("name");
       const names = (regionRows ?? []).map((r) => r.name as string).filter(Boolean);
@@ -252,7 +236,15 @@ export default async function DashboardPage() {
             <div className="rounded-xl border border-violet-200 bg-white/90 p-4">
               <p className="text-xs font-medium uppercase tracking-wide text-violet-700">Assets you assigned</p>
               <p className="mt-1 text-3xl font-semibold text-zinc-900">{pmRegionAssignedAssetCount}</p>
-              <p className="mt-1 text-xs text-zinc-500">In your region, assigned by you</p>
+              {pmProjectTypeAssets && pmProjectTypeAssets.grandTotal > 0 ? (
+                <p className="mt-1 text-xs text-zinc-500">
+                  <span className="font-medium text-emerald-700">{pmProjectTypeAssets.grandConfirmed} confirmed</span>
+                  {" · "}
+                  <span className="font-medium text-amber-700">{pmProjectTypeAssets.grandPending} pending receipt</span>
+                </p>
+              ) : (
+                <p className="mt-1 text-xs text-zinc-500">In your region, assigned by you</p>
+              )}
             </div>
           </div>
           {pmProjectTypeAssets ? <PmProjectTypeAssetCards overview={pmProjectTypeAssets} /> : null}

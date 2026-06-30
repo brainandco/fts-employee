@@ -13,6 +13,12 @@ const CARD_STYLES = {
     accent: "text-amber-900",
     chip: "border-amber-100 bg-white",
   },
+  Other: {
+    border: "border-violet-200",
+    bg: "bg-violet-50/50",
+    accent: "text-violet-900",
+    chip: "border-violet-100 bg-white",
+  },
 } as const;
 
 function ProjectTypeCard({ bucket }: { bucket: PmProjectTypeAssetOverview["ms"] }) {
@@ -24,15 +30,25 @@ function ProjectTypeCard({ bucket }: { bucket: PmProjectTypeAssetOverview["ms"] 
         <div className="flex items-start justify-between gap-3">
           <div>
             <p className={`text-xs font-semibold uppercase tracking-wide ${style.accent}`}>{bucket.title}</p>
-            <p className="mt-1 text-xs text-zinc-500">Assets you assigned to employees on {bucket.projectType} projects</p>
+            <p className="mt-1 text-xs text-zinc-500">
+              Assets you assigned · employees on {bucket.projectType === "Other" ? "other / unassigned" : bucket.projectType}{" "}
+              projects
+            </p>
           </div>
           <div className="text-right">
             <p className="text-3xl font-semibold text-zinc-900">{bucket.totalAssets}</p>
-            <p className="text-[10px] font-medium uppercase tracking-wide text-zinc-500">Total assets</p>
+            <p className="text-[10px] font-medium uppercase tracking-wide text-zinc-500">Total assigned</p>
+            {bucket.totalAssets > 0 ? (
+              <p className="mt-1 text-[11px] text-zinc-600">
+                <span className="font-semibold text-emerald-700">{bucket.confirmedCount} confirmed</span>
+                {" · "}
+                <span className="font-semibold text-amber-700">{bucket.pendingCount} pending</span>
+              </p>
+            ) : null}
           </div>
         </div>
         <p className="mt-2 text-xs font-medium text-indigo-700 group-open:hidden">
-          Tap to see breakdown by model & category
+          Tap for brand & category breakdown with receipt status
         </p>
       </summary>
 
@@ -43,11 +59,24 @@ function ProjectTypeCard({ bucket }: { bucket: PmProjectTypeAssetOverview["ms"] 
           <ul className="space-y-2">
             {bucket.lines.map((line) => (
               <li
-                key={`${line.category}-${line.model ?? ""}`}
-                className={`flex items-center justify-between gap-3 rounded-lg border px-3 py-2 text-sm ${style.chip}`}
+                key={`${line.brand}-${line.category}`}
+                className={`rounded-lg border px-3 py-2 text-sm ${style.chip}`}
               >
-                <span className="min-w-0 truncate text-zinc-800">{line.label}</span>
-                <span className="shrink-0 font-semibold tabular-nums text-zinc-900">{line.count}</span>
+                <div className="flex items-start justify-between gap-3">
+                  <span className="min-w-0 font-medium text-zinc-800">{line.label}</span>
+                  <span className="shrink-0 font-semibold tabular-nums text-zinc-900">{line.count}</span>
+                </div>
+                <p className="mt-1 text-xs text-zinc-600">
+                  <span className="font-medium text-emerald-700">{line.confirmedCount} confirmed</span>
+                  {" · "}
+                  <span className="font-medium text-amber-700">{line.pendingCount} pending receipt</span>
+                </p>
+                {line.pendingAssignees.length > 0 ? (
+                  <p className="mt-1.5 text-xs text-amber-900">
+                    Pending on:{" "}
+                    <span className="font-medium">{line.pendingAssignees.map((a) => a.employeeName).join(", ")}</span>
+                  </p>
+                ) : null}
               </li>
             ))}
           </ul>
@@ -60,14 +89,28 @@ function ProjectTypeCard({ bucket }: { bucket: PmProjectTypeAssetOverview["ms"] 
 export function PmProjectTypeAssetCards({ overview }: { overview: PmProjectTypeAssetOverview }) {
   return (
     <div className="mt-4">
-      <p className="text-xs font-medium uppercase tracking-wide text-indigo-700">Assets you assigned — by project type</p>
-      <p className="mt-1 text-xs text-zinc-500">
-        Only assets you assigned in your region, grouped by the employee&apos;s project (MS vs Rollout). Breakdown shows
-        model and category.
+      <div className="rounded-xl border border-indigo-200 bg-white/80 px-4 py-3">
+        <p className="text-xs font-semibold uppercase tracking-wide text-indigo-800">Your assignments — receipt status</p>
+        <p className="mt-1 text-sm text-zinc-800">
+          <span className="font-semibold">{overview.grandTotal}</span> assets you assigned in your region
+          {overview.grandTotal > 0 ? (
+            <>
+              {" "}
+              · <span className="font-semibold text-emerald-700">{overview.grandConfirmed} confirmed</span>
+              {" · "}
+              <span className="font-semibold text-amber-700">{overview.grandPending} pending</span>
+            </>
+          ) : null}
+        </p>
+      </div>
+      <p className="mt-3 text-xs text-zinc-500">
+        Grouped by employee project (MS / Rollout / Other) and by brand + category. Counts include every asset you
+        assigned — not split by individual model.
       </p>
-      <div className="mt-3 grid gap-3 sm:grid-cols-2">
+      <div className="mt-3 grid gap-3 lg:grid-cols-3">
         <ProjectTypeCard bucket={overview.ms} />
         <ProjectTypeCard bucket={overview.rollout} />
+        <ProjectTypeCard bucket={overview.other} />
       </div>
     </div>
   );
