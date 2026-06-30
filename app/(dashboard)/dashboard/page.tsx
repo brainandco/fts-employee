@@ -4,6 +4,8 @@ import { getOptionalAdminPortalUrl } from "@/lib/auth/portal-access";
 import Link from "next/link";
 import { canAccessPpTeamLeaveRequests, hasReportingPortalRole } from "@/lib/pp/auth";
 import { loadPmScopeIds } from "@/lib/pm-team-assignees";
+import { loadPmProjectTypeAssetOverview } from "@/lib/pm/pm-project-type-asset-stats";
+import { PmProjectTypeAssetCards } from "@/components/pm/PmProjectTypeAssetCards";
 import { AssignedAssetsList } from "@/components/assets/AssignedAssetsList";
 import { ReturnVehicleButton } from "@/components/returns/ReturnVehicleButton";
 import { ReturnSimButton } from "@/components/returns/ReturnSimButton";
@@ -105,9 +107,16 @@ export default async function DashboardPage() {
   let pmRegionEmployeeCount = 0;
   let pmRegionAssignedAssetCount = 0;
   let pmRegionScopeLabel = "";
+  let pmProjectTypeAssets: Awaited<ReturnType<typeof loadPmProjectTypeAssetOverview>> | null = null;
 
   if (isPm) {
     const { allowedRegionIds } = await loadPmScopeIds(
+      supabase,
+      { id: employee.id, region_id: employee.region_id, project_id: employee.project_id },
+      session.user.id
+    );
+
+    pmProjectTypeAssets = await loadPmProjectTypeAssetOverview(
       supabase,
       { id: employee.id, region_id: employee.region_id, project_id: employee.project_id },
       session.user.id
@@ -133,6 +142,7 @@ export default async function DashboardPage() {
           .from("assets")
           .select("id", { count: "exact", head: true })
           .in("assigned_to_employee_id", regionEmpIds)
+          .eq("assigned_by", session.user.id)
           .in("status", ["Assigned", "With_QC", "Under_Maintenance", "Damaged"]);
         pmRegionAssignedAssetCount = assetCount ?? 0;
       }
@@ -240,11 +250,12 @@ export default async function DashboardPage() {
               <p className="mt-1 text-xs text-zinc-500">Active employees</p>
             </div>
             <div className="rounded-xl border border-violet-200 bg-white/90 p-4">
-              <p className="text-xs font-medium uppercase tracking-wide text-violet-700">Assets assigned in region</p>
+              <p className="text-xs font-medium uppercase tracking-wide text-violet-700">Assets you assigned</p>
               <p className="mt-1 text-3xl font-semibold text-zinc-900">{pmRegionAssignedAssetCount}</p>
-              <p className="mt-1 text-xs text-zinc-500">Tools held by regional employees</p>
+              <p className="mt-1 text-xs text-zinc-500">In your region, assigned by you</p>
             </div>
           </div>
+          {pmProjectTypeAssets ? <PmProjectTypeAssetCards overview={pmProjectTypeAssets} /> : null}
         </section>
       )}
 

@@ -47,11 +47,12 @@ export async function loadPmRegionStats(
   let assignedAssetCount = 0;
   const categoryMap = new Map<string, number>();
 
-  if (regionEmpIds.length > 0) {
+  if (regionEmpIds.length > 0 && authUserId) {
     const { data: assignedAssets } = await supabase
       .from("assets")
       .select("category")
       .in("assigned_to_employee_id", regionEmpIds)
+      .eq("assigned_by", authUserId)
       .in("status", [...ASSIGNED_STATUSES]);
 
     assignedAssetCount = (assignedAssets ?? []).length;

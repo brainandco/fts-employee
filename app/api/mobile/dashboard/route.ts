@@ -3,6 +3,7 @@ import { resolveEmployeePortalAccess } from "@/lib/auth/portal-access";
 import { loadEmployeeWorkInfo } from "@/lib/mobile/employee-work-info";
 import { isPendingLeaveStatus, mapLeaveApprovalRow } from "@/lib/mobile/leave-requests";
 import { loadPmRegionStats } from "@/lib/mobile/pm-region-stats";
+import { loadPmProjectTypeAssetOverview } from "@/lib/pm/pm-project-type-asset-stats";
 import { computeTransferAccess } from "@/lib/transfer-requests/access";
 import { getDataClient } from "@/lib/supabase/server";
 import { getRequestAuth } from "@/lib/supabase/request-auth";
@@ -31,6 +32,7 @@ export async function GET(req: Request) {
       pmRegionAssignedAssetCount: null,
       pmRegionScopeLabel: null,
       pmAssetsByCategory: null,
+      pmProjectTypeAssets: null,
       pmPendingAssetReturns: null,
       pmPendingQcRequests: null,
     });
@@ -85,11 +87,17 @@ export async function GET(req: Request) {
   let pmRegionAssignedAssetCount: number | null = null;
   let pmRegionScopeLabel: string | null = null;
   let pmAssetsByCategory: { category: string; count: number }[] | null = null;
+  let pmProjectTypeAssets: Awaited<ReturnType<typeof loadPmProjectTypeAssetOverview>> | null = null;
   let pmPendingAssetReturns: number | null = null;
   let pmPendingQcRequests: number | null = null;
 
   if (isPm && employee) {
     const pmStats = await loadPmRegionStats(
+      supabase,
+      { id: employee.id, region_id: employee.region_id, project_id: employee.project_id },
+      auth.user.id
+    );
+    pmProjectTypeAssets = await loadPmProjectTypeAssetOverview(
       supabase,
       { id: employee.id, region_id: employee.region_id, project_id: employee.project_id },
       auth.user.id
@@ -150,6 +158,7 @@ export async function GET(req: Request) {
     pmRegionAssignedAssetCount,
     pmRegionScopeLabel,
     pmAssetsByCategory,
+    pmProjectTypeAssets,
     pmPendingAssetReturns,
     pmPendingQcRequests,
     work,
