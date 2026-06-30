@@ -234,16 +234,23 @@ export default async function DashboardPage() {
               <p className="mt-1 text-xs text-zinc-500">Active employees</p>
             </div>
             <div className="rounded-xl border border-violet-200 bg-white/90 p-4">
-              <p className="text-xs font-medium uppercase tracking-wide text-violet-700">Assets you assigned</p>
+              <p className="text-xs font-medium uppercase tracking-wide text-violet-700">Assets in region</p>
               <p className="mt-1 text-3xl font-semibold text-zinc-900">{pmRegionAssignedAssetCount}</p>
               {pmProjectTypeAssets && pmProjectTypeAssets.grandTotal > 0 ? (
                 <p className="mt-1 text-xs text-zinc-500">
+                  All assigners ·{" "}
                   <span className="font-medium text-emerald-700">{pmProjectTypeAssets.grandConfirmed} confirmed</span>
                   {" · "}
-                  <span className="font-medium text-amber-700">{pmProjectTypeAssets.grandPending} pending receipt</span>
+                  <span className="font-medium text-amber-700">{pmProjectTypeAssets.grandPending} pending</span>
+                  {pmProjectTypeAssets.yourAssignedCount > 0 ? (
+                    <>
+                      {" "}
+                      · <span className="font-medium text-indigo-800">{pmProjectTypeAssets.yourAssignedCount} by you</span>
+                    </>
+                  ) : null}
                 </p>
               ) : (
-                <p className="mt-1 text-xs text-zinc-500">In your region, assigned by you</p>
+                <p className="mt-1 text-xs text-zinc-500">Assigned to employees in your region (any assigner)</p>
               )}
             </div>
           </div>

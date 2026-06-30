@@ -1,8 +1,18 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { loadAssetReceiptStatusMap } from "@/lib/assets/asset-receipt-status";
 import { loadPmScopeIds } from "@/lib/pm-team-assignees";
+import { resolveAssignerNames } from "@/lib/users/resolve-assigner-names";
 
 export type PmProjectTypeKey = "MS" | "Rollout" | "Other";
+
+export type PmAssignerSummary = {
+  assignerUserId: string | null;
+  assignerName: string;
+  count: number;
+  confirmedCount: number;
+  pendingCount: number;
+  isYou: boolean;
+};
 
 export type PmAssetBreakdownAssignee = {
   employeeId: string;
@@ -18,6 +28,7 @@ export type PmAssetBreakdownLine = {
   confirmedCount: number;
   pendingCount: number;
   pendingAssignees: { employeeId: string; employeeName: string }[];
+  byAssigner: PmAssignerSummary[];
 };
 
 export type PmProjectTypeAssetBucket = {
@@ -36,9 +47,11 @@ export type PmProjectTypeAssetOverview = {
   grandTotal: number;
   grandConfirmed: number;
   grandPending: number;
+  /** Who assigned assets in scope (PM, admin, others). */
+  byAssigner: PmAssignerSummary[];
+  yourAssignedCount: number;
 };
 
-/** Still on an employee — includes pending return (not yet collected). */
 const ASSIGNED_STATUSES = ["Assigned", "With_QC", "Under_Maintenance", "Damaged", "Pending_Return"] as const;
 
 const CANONICAL_BRANDS: [RegExp, string][] = [
@@ -53,6 +66,27 @@ const CANONICAL_BRANDS: [RegExp, string][] = [
   [/\bacer\b/i, "Acer"],
   [/\basus\b/i, "Asus"],
 ];
+
+type AssetRow = {
+  id: string;
+  assigned_to_employee_id: string | null;
+  assigned_region_id: string | null;
+  category: string | null;
+  model: string | null;
+  name: string | null;
+  specs: unknown;
+  status: string;
+  assigned_by: string | null;
+};
+
+type AssignerAgg = {
+  assignerUserId: string | null;
+  assignerName: string;
+  count: number;
+  confirmedCount: number;
+  pendingCount: number;
+  isYou: boolean;
+};
 
 function formatBrandToken(token: string): string {
   if (!token) return token;
@@ -94,7 +128,6 @@ function rawCompanyFromSpecs(specs: unknown): string {
   return "";
 }
 
-/** Merge mobile-like categories so Samsung phones are one line. */
 function normalizeCategoryForGrouping(category: string): string {
   const c = category.trim().toLowerCase().replace(/\s+/g, " ");
   if (!c) return "Other";
@@ -123,12 +156,14 @@ function lineKey(brand: string, category: string): string {
   return `${brandGroupingKey(brand)}|${category.trim().toLowerCase() || "other"}`;
 }
 
+function assignerAggKey(userId: string | null): string {
+  return userId ?? "__unknown__";
+}
+
 function emptyBucket(type: PmProjectTypeKey): PmProjectTypeAssetBucket {
-  const title =
-    type === "MS" ? "MS projects" : type === "Rollout" ? "Rollout projects" : "Other projects";
   return {
     projectType: type,
-    title,
+    title: type === "MS" ? "MS projects" : type === "Rollout" ? "Rollout projects" : "Other projects",
     totalAssets: 0,
     confirmedCount: 0,
     pendingCount: 0,
@@ -136,7 +171,6 @@ function emptyBucket(type: PmProjectTypeKey): PmProjectTypeAssetBucket {
   };
 }
 
-/** MS / Rollout from projects.project_type — supports values like "STC Rollout", "STC MS". */
 function resolveProjectTypeKey(raw: string): PmProjectTypeKey {
   const n = raw.trim().toLowerCase();
   if (!n) return "Other";
@@ -145,12 +179,60 @@ function resolveProjectTypeKey(raw: string): PmProjectTypeKey {
   return "Other";
 }
 
+function mergeReceiptStatus(
+  a: PmAssetBreakdownAssignee["receiptStatus"],
+  b: PmAssetBreakdownAssignee["receiptStatus"]
+): PmAssetBreakdownAssignee["receiptStatus"] {
+  if (a === "pending" || b === "pending") return "pending";
+  if (a === "none" || b === "none") return "none";
+  return "confirmed";
+}
+
+function finalizeAssignerMap(map: Map<string, AssignerAgg>): PmAssignerSummary[] {
+  return [...map.values()]
+    .map((a) => ({
+      assignerUserId: a.assignerUserId,
+      assignerName: a.assignerName,
+      count: a.count,
+      confirmedCount: a.confirmedCount,
+      pendingCount: a.pendingCount,
+      isYou: a.isYou,
+    }))
+    .sort((a, b) => b.count - a.count || a.assignerName.localeCompare(b.assignerName));
+}
+
+function bumpAssigner(
+  map: Map<string, AssignerAgg>,
+  userId: string | null,
+  name: string,
+  isYou: boolean,
+  receiptStatus: PmAssetBreakdownAssignee["receiptStatus"]
+) {
+  const key = assignerAggKey(userId);
+  let row = map.get(key);
+  if (!row) {
+    row = {
+      assignerUserId: userId,
+      assignerName: name,
+      count: 0,
+      confirmedCount: 0,
+      pendingCount: 0,
+      isYou,
+    };
+    map.set(key, row);
+  }
+  row.count += 1;
+  if (receiptStatus === "confirmed") row.confirmedCount += 1;
+  else row.pendingCount += 1;
+}
+
 function buildBucket(
   type: PmProjectTypeKey,
   map: Map<
     string,
     PmAssetBreakdownLine & {
       assigneeMap: Map<string, PmAssetBreakdownAssignee>;
+      assignerMap: Map<string, AssignerAgg>;
     }
   >
 ): PmProjectTypeAssetBucket {
@@ -168,20 +250,17 @@ function buildBucket(
         confirmedCount: entry.confirmedCount,
         pendingCount: entry.pendingCount,
         pendingAssignees,
+        byAssigner: finalizeAssignerMap(entry.assignerMap),
       };
     })
     .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label));
 
-  const totalAssets = lines.reduce((s, l) => s + l.count, 0);
-  const confirmedCount = lines.reduce((s, l) => s + l.confirmedCount, 0);
-  const pendingCount = lines.reduce((s, l) => s + l.pendingCount, 0);
-
   return {
     projectType: type,
     title: type === "MS" ? "MS projects" : type === "Rollout" ? "Rollout projects" : "Other projects",
-    totalAssets,
-    confirmedCount,
-    pendingCount,
+    totalAssets: lines.reduce((s, l) => s + l.count, 0),
+    confirmedCount: lines.reduce((s, l) => s + l.confirmedCount, 0),
+    pendingCount: lines.reduce((s, l) => s + l.pendingCount, 0),
     lines,
   };
 }
@@ -197,59 +276,45 @@ export function emptyPmProjectTypeAssetOverview(): PmProjectTypeAssetOverview {
     grandTotal: 0,
     grandConfirmed: 0,
     grandPending: 0,
+    byAssigner: [],
+    yourAssignedCount: 0,
   };
 }
 
-function mergeReceiptStatus(
-  a: PmAssetBreakdownAssignee["receiptStatus"],
-  b: PmAssetBreakdownAssignee["receiptStatus"]
-): PmAssetBreakdownAssignee["receiptStatus"] {
-  if (a === "pending" || b === "pending") return "pending";
-  if (a === "none" || b === "none") return "none";
-  return "confirmed";
-}
-
-type AssetRow = {
-  id: string;
-  assigned_to_employee_id: string | null;
-  category: string | null;
-  model: string | null;
-  name: string | null;
-  specs: unknown;
-  status: string;
-  assigned_by: string | null;
-};
-
-/** Latest PM assignment per asset from history (for rows where assets.assigned_by was cleared). */
-async function loadLatestPmHistoryByAsset(
+async function loadLatestHistoryByAsset(
   supabase: SupabaseClient,
-  authUserId: string
-): Promise<Map<string, string>> {
+  assetIds: string[]
+): Promise<Map<string, { userId: string; employeeId: string }>> {
+  const map = new Map<string, { userId: string; employeeId: string }>();
+  if (assetIds.length === 0) return map;
+
   const { data: rows } = await supabase
     .from("asset_assignment_history")
-    .select("asset_id, to_employee_id, assigned_at")
-    .eq("assigned_by_user_id", authUserId)
+    .select("asset_id, assigned_by_user_id, to_employee_id, assigned_at")
+    .in("asset_id", assetIds)
     .order("assigned_at", { ascending: false })
-    .limit(5000);
+    .limit(10000);
 
-  const map = new Map<string, string>();
   for (const row of rows ?? []) {
     const assetId = row.asset_id as string;
-    if (!map.has(assetId)) map.set(assetId, row.to_employee_id as string);
+    if (!map.has(assetId)) {
+      map.set(assetId, {
+        userId: row.assigned_by_user_id as string,
+        employeeId: row.to_employee_id as string,
+      });
+    }
   }
   return map;
 }
 
-function assetIncludedForPm(
+function assetInRegionScope(
   asset: AssetRow,
-  authUserId: string,
-  historyAssigneeByAsset: Map<string, string>
+  employeeRegionId: string | null,
+  allowedRegionSet: Set<string>
 ): boolean {
-  if (!asset.assigned_to_employee_id) return false;
-  if (asset.assigned_by === authUserId) return true;
-  if (asset.assigned_by) return false;
-  const histEmp = historyAssigneeByAsset.get(asset.id);
-  return histEmp != null && histEmp === asset.assigned_to_employee_id;
+  if (employeeRegionId && allowedRegionSet.has(employeeRegionId)) return true;
+  const ar = asset.assigned_region_id;
+  return !!(ar && allowedRegionSet.has(ar));
 }
 
 export async function loadPmProjectTypeAssetOverview(
@@ -257,35 +322,40 @@ export async function loadPmProjectTypeAssetOverview(
   employee: { id: string; region_id: string | null; project_id: string | null },
   authUserId: string
 ): Promise<PmProjectTypeAssetOverview> {
-  if (!authUserId) return emptyPmProjectTypeAssetOverview();
-
   const { allowedRegionIds } = await loadPmScopeIds(supabase, employee, authUserId);
   if (allowedRegionIds.length === 0) return emptyPmProjectTypeAssetOverview();
 
-  const [historyAssigneeByAsset, { data: directAssets }, { data: nullByAssets }] = await Promise.all([
-    loadLatestPmHistoryByAsset(supabase, authUserId),
+  const allowedRegionSet = new Set(allowedRegionIds);
+
+  const { data: regionEmps } = await supabase
+    .from("employees")
+    .select("id, full_name, project_id, region_id")
+    .in("region_id", allowedRegionIds);
+
+  const regionEmpIds = (regionEmps ?? []).map((e) => e.id as string);
+
+  const assetSelect =
+    "id, assigned_to_employee_id, assigned_region_id, category, model, name, specs, status, assigned_by";
+
+  const [byAssigneeRes, byRegionRes] = await Promise.all([
+    regionEmpIds.length > 0
+      ? supabase
+          .from("assets")
+          .select(assetSelect)
+          .in("assigned_to_employee_id", regionEmpIds)
+          .in("status", [...ASSIGNED_STATUSES])
+      : Promise.resolve({ data: [] as AssetRow[] }),
     supabase
       .from("assets")
-      .select("id, assigned_to_employee_id, category, model, name, specs, status, assigned_by")
-      .eq("assigned_by", authUserId)
-      .in("status", [...ASSIGNED_STATUSES]),
-    supabase
-      .from("assets")
-      .select("id, assigned_to_employee_id, category, model, name, specs, status, assigned_by")
-      .is("assigned_by", null)
+      .select(assetSelect)
+      .in("assigned_region_id", allowedRegionIds)
       .not("assigned_to_employee_id", "is", null)
       .in("status", [...ASSIGNED_STATUSES]),
   ]);
 
   const assetMap = new Map<string, AssetRow>();
-  for (const a of directAssets ?? []) {
+  for (const a of [...(byAssigneeRes.data ?? []), ...(byRegionRes.data ?? [])]) {
     assetMap.set(a.id as string, a as AssetRow);
-  }
-  for (const a of nullByAssets ?? []) {
-    const row = a as AssetRow;
-    if (assetIncludedForPm(row, authUserId, historyAssigneeByAsset)) {
-      assetMap.set(row.id, row);
-    }
   }
 
   const includedAssets = [...assetMap.values()];
@@ -294,7 +364,7 @@ export async function loadPmProjectTypeAssetOverview(
   const assigneeIds = [...new Set(includedAssets.map((a) => a.assigned_to_employee_id).filter(Boolean) as string[])];
   const { data: assignees } = await supabase
     .from("employees")
-    .select("id, full_name, project_id")
+    .select("id, full_name, project_id, region_id")
     .in("id", assigneeIds);
 
   const empById = new Map(
@@ -304,9 +374,23 @@ export async function loadPmProjectTypeAssetOverview(
         id: e.id as string,
         full_name: (e.full_name as string | null) ?? "—",
         project_id: e.project_id as string | null,
+        region_id: e.region_id as string | null,
       },
     ])
   );
+
+  const nullAssignerAssetIds = includedAssets.filter((a) => !a.assigned_by).map((a) => a.id);
+  const historyByAsset = await loadLatestHistoryByAsset(supabase, nullAssignerAssetIds);
+
+  const assignerUserIds = new Set<string>();
+  for (const a of includedAssets) {
+    if (a.assigned_by) assignerUserIds.add(a.assigned_by);
+    else {
+      const h = historyByAsset.get(a.id);
+      if (h?.userId) assignerUserIds.add(h.userId);
+    }
+  }
+  const assignerNameMap = await resolveAssignerNames(supabase, [...assignerUserIds]);
 
   const projectIds = [...new Set((assignees ?? []).map((e) => e.project_id).filter(Boolean) as string[])];
   const projectTypeMap = new Map<string, PmProjectTypeKey>();
@@ -326,17 +410,33 @@ export async function loadPmProjectTypeAssetOverview(
     brand: string;
     label: string;
     key: string;
+    assignerUserId: string | null;
+    assignerName: string;
+    isYou: boolean;
   };
 
   const scoped: ScopedAsset[] = [];
   for (const a of includedAssets) {
-    const empId = a.assigned_to_employee_id as string;
+    const empId = a.assigned_to_employee_id as string | null;
+    if (!empId) continue;
     const emp = empById.get(empId);
     if (!emp) continue;
+    if (!assetInRegionScope(a, emp.region_id, allowedRegionSet)) continue;
+
+    let assignerUserId = a.assigned_by;
+    if (!assignerUserId) {
+      const hist = historyByAsset.get(a.id);
+      if (hist && hist.employeeId === empId) assignerUserId = hist.userId;
+    }
+    const assignerName = assignerUserId
+      ? assignerNameMap.get(assignerUserId) ?? "Unknown user"
+      : "Unknown assigner";
+    const isYou = !!(authUserId && assignerUserId === authUserId);
 
     const projectType = emp.project_id ? (projectTypeMap.get(emp.project_id) ?? "Other") : "Other";
     const category = normalizeCategoryForGrouping((a.category as string | null) ?? "");
     const brand = canonicalBrand(rawCompanyFromSpecs(a.specs), (a.model as string | null) ?? null);
+
     scoped.push({
       id: a.id,
       employeeId: empId,
@@ -346,6 +446,9 @@ export async function loadPmProjectTypeAssetOverview(
       brand,
       label: breakdownLabel(brand, category),
       key: lineKey(brand, category),
+      assignerUserId,
+      assignerName,
+      isYou,
     });
   }
 
@@ -357,9 +460,16 @@ export async function loadPmProjectTypeAssetOverview(
     scoped.map((s) => s.id)
   );
 
+  const grandAssignerMap = new Map<string, AssignerAgg>();
   const bucketMaps: Record<
     PmProjectTypeKey,
-    Map<string, PmAssetBreakdownLine & { assigneeMap: Map<string, PmAssetBreakdownAssignee> }>
+    Map<
+      string,
+      PmAssetBreakdownLine & {
+        assigneeMap: Map<string, PmAssetBreakdownAssignee>;
+        assignerMap: Map<string, AssignerAgg>;
+      }
+    >
   > = {
     MS: new Map(),
     Rollout: new Map(),
@@ -370,6 +480,8 @@ export async function loadPmProjectTypeAssetOverview(
     const receipt = receiptMap.get(`${item.employeeId}:${item.id}`);
     const receiptStatus: PmAssetBreakdownAssignee["receiptStatus"] =
       receipt === "confirmed" ? "confirmed" : receipt === "pending" ? "pending" : "none";
+
+    bumpAssigner(grandAssignerMap, item.assignerUserId, item.assignerName, item.isYou, receiptStatus);
 
     const map = bucketMaps[item.projectType];
     let line = map.get(item.key);
@@ -382,7 +494,9 @@ export async function loadPmProjectTypeAssetOverview(
         confirmedCount: 0,
         pendingCount: 0,
         pendingAssignees: [],
+        byAssigner: [],
         assigneeMap: new Map(),
+        assignerMap: new Map(),
       };
       map.set(item.key, line);
     }
@@ -390,6 +504,8 @@ export async function loadPmProjectTypeAssetOverview(
     line.count += 1;
     if (receiptStatus === "confirmed") line.confirmedCount += 1;
     else line.pendingCount += 1;
+
+    bumpAssigner(line.assignerMap, item.assignerUserId, item.assignerName, item.isYou, receiptStatus);
 
     const existingAssignee = line.assigneeMap.get(item.employeeId);
     const mergedStatus = existingAssignee
@@ -405,15 +521,21 @@ export async function loadPmProjectTypeAssetOverview(
   const ms = buildBucket("MS", bucketMaps.MS);
   const rollout = buildBucket("Rollout", bucketMaps.Rollout);
   const other = buildBucket("Other", bucketMaps.Other);
+  const byAssigner = finalizeAssignerMap(grandAssignerMap);
+  const yourAssignedCount = byAssigner.find((a) => a.isYou)?.count ?? 0;
 
-  const grandTotal = ms.totalAssets + rollout.totalAssets + other.totalAssets;
-  const grandConfirmed = ms.confirmedCount + rollout.confirmedCount + other.confirmedCount;
-  const grandPending = ms.pendingCount + rollout.pendingCount + other.pendingCount;
-
-  return { ms, rollout, other, grandTotal, grandConfirmed, grandPending };
+  return {
+    ms,
+    rollout,
+    other,
+    grandTotal: ms.totalAssets + rollout.totalAssets + other.totalAssets,
+    grandConfirmed: ms.confirmedCount + rollout.confirmedCount + other.confirmedCount,
+    grandPending: ms.pendingCount + rollout.pendingCount + other.pendingCount,
+    byAssigner,
+    yourAssignedCount,
+  };
 }
 
-/** Category totals across all PM assignments (for mobile legacy chips). */
 export function pmOverviewToCategoryCounts(overview: PmProjectTypeAssetOverview): { category: string; count: number }[] {
   const map = new Map<string, number>();
   for (const bucket of [overview.ms, overview.rollout, overview.other]) {
