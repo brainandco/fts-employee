@@ -1,6 +1,6 @@
 import { getDataClient } from "@/lib/supabase/server";
 import { getRequestAuth } from "@/lib/supabase/request-auth";
-import { collectSuperUserRecipientUserIds } from "@/lib/notify-super-users";
+import { notifyApprovalAdmins } from "@/lib/notify-approval-admins";
 import { NextResponse } from "next/server";
 
 /** PM requests new assets from admin. */
@@ -61,17 +61,16 @@ export async function POST(req: Request) {
 
   if (error) return NextResponse.json({ message: error.message }, { status: 400 });
 
-  const superIds = await collectSuperUserRecipientUserIds(supabase, { excludeUserId: session.user.id });
-  const notifications = superIds.map((id) => ({
-    recipient_user_id: id,
-    title: "New PM asset request",
-    body: `${asset_name} (${quantity}) requested by PM for admin review.`,
-    category: "asset_request",
-    link: `/approvals/${data.id}`,
-    meta: { approval_id: data.id, priority: payload_json.priority, category },
-  }));
-  if (notifications.length > 0) {
-    await supabase.from("notifications").insert(notifications);
+  try {
+    await notifyApprovalAdmins(supabase, {
+      title: "New PM asset request",
+      body: `${asset_name} (×${quantity}) — review and approve for super-user final decision.`,
+      category: "asset_request",
+      link: `/approvals/${data.id}`,
+      meta: { approval_id: data.id, priority: payload_json.priority, category, stage: "admin_review" },
+    });
+  } catch (notifyErr) {
+    console.error("[assets/request] admin notification failed:", notifyErr);
   }
 
   return NextResponse.json({
