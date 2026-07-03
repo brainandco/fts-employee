@@ -63,6 +63,7 @@ export default async function PmAssignAssetPage() {
     const { data: catalogRows } = await supabase
       .from("assets")
       .select("id, name, category, model, serial, imei_1, imei_2, status, assigned_to_employee_id")
+      .eq("is_ehs_tool", false)
       .order("name");
     searchCatalog = await attachAssigneeNames(catalogRows ?? []);
     assets = searchCatalog.filter((a) => a.status === "Available");
@@ -85,6 +86,7 @@ export default async function PmAssignAssetPage() {
     const { data: catalogRows } = await supabase
       .from("assets")
       .select("id, name, category, model, serial, imei_1, imei_2, status, assigned_to_employee_id")
+      .eq("is_ehs_tool", false)
       .or(assetsRegionOr)
       .order("name");
     searchCatalog = await attachAssigneeNames(catalogRows ?? []);

@@ -342,12 +342,14 @@ export async function loadPmProjectTypeAssetOverview(
       ? supabase
           .from("assets")
           .select(assetSelect)
+          .eq("is_ehs_tool", false)
           .in("assigned_to_employee_id", regionEmpIds)
           .in("status", [...ASSIGNED_STATUSES])
       : Promise.resolve({ data: [] as AssetRow[] }),
     supabase
       .from("assets")
       .select(assetSelect)
+      .eq("is_ehs_tool", false)
       .in("assigned_region_id", allowedRegionIds)
       .not("assigned_to_employee_id", "is", null)
       .in("status", [...ASSIGNED_STATUSES]),

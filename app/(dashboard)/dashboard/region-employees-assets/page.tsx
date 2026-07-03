@@ -2,12 +2,15 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createServerSupabaseClient, getDataClient } from "@/lib/supabase/server";
 import { loadAssetReceiptStatusMap, loadSimReceiptStatusMap } from "@/lib/assets/asset-receipt-status";
+import { loadTeamEhsAssignments } from "@/lib/assets/load-team-ehs-assignments";
+import { loadPmScopeIds } from "@/lib/pm-team-assignees";
 import {
   RegionEmployeesWithAssetsClient,
   type EmployeeWithAssets,
   type AssetLine,
   type SimLine,
 } from "./RegionEmployeesWithAssetsClient";
+import { TeamEhsToolsPanel } from "@/components/ehs/TeamEhsToolsPanel";
 
 export default async function RegionEmployeesWithAssetsPage() {
   const userClient = await createServerSupabaseClient();
@@ -20,7 +23,7 @@ export default async function RegionEmployeesWithAssetsPage() {
   const email = (session.user.email ?? "").trim().toLowerCase();
   const { data: me } = await supabase
     .from("employees")
-    .select("id, full_name, region_id, status")
+    .select("id, full_name, region_id, project_id, status")
     .eq("email", email)
     .maybeSingle();
 
@@ -59,6 +62,7 @@ export default async function RegionEmployeesWithAssetsPage() {
     ? await supabase
         .from("assets")
         .select("id, name, model, serial, category, status, assigned_to_employee_id")
+        .eq("is_ehs_tool", false)
         .in("assigned_to_employee_id", empIds)
         .in("status", ["Assigned", "Under_Maintenance", "Damaged", "With_QC"])
         .order("name")
@@ -152,6 +156,20 @@ export default async function RegionEmployeesWithAssetsPage() {
     ? `${regionRow?.name ?? "—"}${regionRow?.code ? ` · ${regionRow.code}` : ""}`
     : "No region (unscoped roster)";
 
+  let ehsTeamBlocks: Awaited<ReturnType<typeof loadTeamEhsAssignments>> = [];
+  if (isPm) {
+    const { allowedRegionIds } = await loadPmScopeIds(
+      supabase,
+      { id: me.id, region_id: me.region_id, project_id: me.project_id },
+      session.user.id
+    );
+    if (allowedRegionIds.length > 0) {
+      ehsTeamBlocks = await loadTeamEhsAssignments(supabase, { regionIds: allowedRegionIds });
+    }
+  } else if (me.region_id) {
+    ehsTeamBlocks = await loadTeamEhsAssignments(supabase, { regionId: me.region_id });
+  }
+
   return (
     <div className="space-y-8 pb-10">
       <div>
@@ -176,6 +194,16 @@ export default async function RegionEmployeesWithAssetsPage() {
         regionLabel={regionLabel}
         withoutCount={withoutCount}
       />
+
+      <section className="space-y-4">
+        <div>
+          <h2 className="text-xl font-semibold text-zinc-900">EHS tools by team</h2>
+          <p className="mt-1 text-sm text-zinc-600">
+            DT wear and Driver/Rigger wear tools assigned per team (held by DT, driver tools linked to team driver).
+          </p>
+        </div>
+        <TeamEhsToolsPanel teams={ehsTeamBlocks} />
+      </section>
     </div>
   );
 }

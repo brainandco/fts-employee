@@ -7,6 +7,7 @@ import { loadPmScopeIds } from "@/lib/pm-team-assignees";
 import { loadPmProjectTypeAssetOverview, type PmProjectTypeAssetOverview } from "@/lib/pm/pm-project-type-asset-stats";
 import { PmProjectTypeAssetCards } from "@/components/pm/PmProjectTypeAssetCards";
 import { AssignedAssetsList } from "@/components/assets/AssignedAssetsList";
+import { EhsAssignedToolsList } from "@/components/assets/EhsAssignedToolsList";
 import { ReturnVehicleButton } from "@/components/returns/ReturnVehicleButton";
 import { ReturnSimButton } from "@/components/returns/ReturnSimButton";
 
@@ -51,12 +52,17 @@ export default async function DashboardPage() {
   const showPpTeamLeaveLink = canAccessPpTeamLeaveRequests(myRoles ?? []);
   const isProjectCoordinator = (myRoles ?? []).some((r) => r.role === "Project Coordinator");
   const isDriverOrSelfDt = (myRoles ?? []).some((r) => r.role === "Driver/Rigger" || r.role === "Self DT");
+  const isDtRole = (myRoles ?? []).some((r) => r.role === "DT" || r.role === "Junior DT" || r.role === "Self DT");
 
   const [regionRes, assetsRes, simsRes, assignmentsRes, tasksRes, approvalsRes, regionEmployeesRes, pendingReceiptsRes] = await Promise.all([
     employee.region_id
       ? supabase.from("regions").select("id, name, code").eq("id", employee.region_id).single()
       : { data: null },
-    supabase.from("assets").select("id, name, category, model, serial, imei_1, imei_2, status").eq("assigned_to_employee_id", employee.id).order("name"),
+    supabase
+      .from("assets")
+      .select("id, name, category, model, serial, imei_1, imei_2, status, is_ehs_tool, ehs_wear_role, ehs_for_employee_id, asset_id, en_code")
+      .eq("assigned_to_employee_id", employee.id)
+      .order("name"),
     supabase
       .from("sim_cards")
       .select("id, sim_number, phone_number, operator, service_type, status")
@@ -88,7 +94,34 @@ export default async function DashboardPage() {
   ]);
 
   const region = regionRes.data;
-  const assets = assetsRes.data ?? [];
+  const allAssignedAssets = assetsRes.data ?? [];
+  const assets = allAssignedAssets.filter((a) => !a.is_ehs_tool);
+  const ehsAssigned = allAssignedAssets.filter((a) => a.is_ehs_tool);
+  const ehsDtTools = ehsAssigned.filter((a) => a.ehs_wear_role === "dt");
+  const ehsDriverTools = ehsAssigned.filter((a) => a.ehs_wear_role === "driver_rigger");
+
+  const driverIdsForEhs = [...new Set(ehsDriverTools.map((a) => a.ehs_for_employee_id).filter(Boolean) as string[])];
+  const { data: ehsDriverEmps } = driverIdsForEhs.length
+    ? await supabase.from("employees").select("id, full_name").in("id", driverIdsForEhs)
+    : { data: [] };
+  const ehsDriverNameMap = new Map((ehsDriverEmps ?? []).map((e) => [e.id, e.full_name ?? "Driver/Rigger"]));
+
+  let teamDriverName: string | null = null;
+  if (isDtRole) {
+    const { data: myTeam } = await supabase
+      .from("teams")
+      .select("driver_rigger_employee_id")
+      .eq("dt_employee_id", employee.id)
+      .maybeSingle();
+    if (myTeam?.driver_rigger_employee_id) {
+      teamDriverName =
+        ehsDriverNameMap.get(myTeam.driver_rigger_employee_id) ??
+        (
+          await supabase.from("employees").select("full_name").eq("id", myTeam.driver_rigger_employee_id).maybeSingle()
+        ).data?.full_name ??
+        null;
+    }
+  }
   const sims = simsRes.data ?? [];
   const vehicleIds = (assignmentsRes.data ?? []).map((a) => a.vehicle_id);
   const tasks = tasksRes.data ?? [];
@@ -267,6 +300,7 @@ export default async function DashboardPage() {
             <Link href="/dashboard/region-employees-assets" className="rounded border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-medium text-emerald-900 hover:bg-emerald-100">Who has assets</Link>
             <Link href="/dashboard/receipt-confirmations" className="rounded border border-teal-200 bg-teal-50 px-4 py-2 text-sm font-medium text-teal-900 hover:bg-teal-100">Receipt confirmations</Link>
             <Link href="/dashboard/assets/assign" className="rounded border border-white bg-white px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50">Assign to employee</Link>
+            <Link href="/dashboard/ehs-tools/assign" className="rounded border border-orange-200 bg-orange-50 px-4 py-2 text-sm font-medium text-orange-900 hover:bg-orange-100">Assign EHS tools</Link>
             <Link href="/dashboard/sims/assign" className="rounded border border-white bg-white px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50">Assign SIMs</Link>
             <Link href="/dashboard/vehicles/assign" className="rounded border border-white bg-white px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50">Assign vehicles</Link>
             <Link href="/dashboard/assets/request" className="rounded border border-indigo-200 bg-indigo-50 px-4 py-2 text-sm font-medium text-indigo-900 hover:bg-indigo-100">Request asset from admin</Link>
@@ -354,6 +388,42 @@ export default async function DashboardPage() {
             </div>
           </section>
         )}
+
+        {isDtRole && !isQc ? (
+          <section className="rounded-2xl border border-orange-200 bg-white p-5 shadow-sm sm:p-6 lg:col-span-2">
+            <h2 className="text-lg font-semibold text-zinc-900">EHS tools</h2>
+            <p className="mt-1 text-sm text-zinc-600">
+              You are responsible for returns and transfers. Driver/Rigger tools show the team driver name.
+            </p>
+            <div className="mt-4 grid gap-6 md:grid-cols-2">
+              <div className="rounded-xl border border-orange-100 bg-orange-50/40 p-4">
+                <EhsAssignedToolsList title="My DT wear tools" tools={ehsDtTools.map((a) => ({
+                  id: a.id,
+                  asset_id: a.asset_id,
+                  name: a.name,
+                  en_code: a.en_code,
+                  status: a.status,
+                }))} emptyLabel="No DT wear EHS tools assigned." />
+              </div>
+              <div className="rounded-xl border border-sky-100 bg-sky-50/40 p-4">
+                <EhsAssignedToolsList
+                  title={`Team Driver/Rigger wear tools${teamDriverName ? ` — ${teamDriverName}` : ""}`}
+                  tools={ehsDriverTools.map((a) => ({
+                    id: a.id,
+                    asset_id: a.asset_id,
+                    name: a.name,
+                    en_code: a.en_code,
+                    status: a.status,
+                    wornByLabel:
+                      (a.ehs_for_employee_id ? ehsDriverNameMap.get(a.ehs_for_employee_id) : null) ??
+                      teamDriverName,
+                  }))}
+                  emptyLabel="No driver/rigger EHS tools on your team."
+                />
+              </div>
+            </div>
+          </section>
+        ) : null}
 
         <section className="rounded-2xl border border-sky-200 bg-white p-5 shadow-sm sm:p-6">
           <h2 className="text-lg font-semibold text-zinc-900">My vehicle(s)</h2>
