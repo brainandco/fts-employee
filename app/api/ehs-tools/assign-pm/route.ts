@@ -5,7 +5,6 @@ import { targetEmployeeIsOnPmTeam, loadPmScopeIds } from "@/lib/pm-team-assignee
 import { resolvePortalAdminAssetAssigner } from "@/lib/portal-asset-assign-auth";
 import { upsertPendingReceipts } from "@/lib/resource-receipts";
 import { dispatchNotifications } from "@/lib/notifications/dispatch-notifications";
-import type { EhsWearRole } from "@/lib/assets/ehs-tool-catalog";
 
 async function resolveDriverForDt(
   supabase: Awaited<ReturnType<typeof getDataClient>>,
@@ -36,6 +35,8 @@ export async function POST(req: Request) {
   const body = await req.json().catch(() => ({}));
   const assetIds = Array.isArray(body.asset_ids) ? body.asset_ids.filter((id: unknown) => typeof id === "string") : [];
   const dtEmployeeId = typeof body.dt_employee_id === "string" ? body.dt_employee_id.trim() : "";
+  const assignWearRole =
+    body.assign_wear_role === "driver_rigger" ? "driver_rigger" : body.assign_wear_role === "dt" ? "dt" : "";
   const driverEmployeeId =
     typeof body.driver_employee_id === "string" && body.driver_employee_id.trim()
       ? body.driver_employee_id.trim()
@@ -43,6 +44,9 @@ export async function POST(req: Request) {
 
   if (!dtEmployeeId || assetIds.length === 0) {
     return NextResponse.json({ message: "asset_ids and dt_employee_id required" }, { status: 400 });
+  }
+  if (!assignWearRole) {
+    return NextResponse.json({ message: "assign_wear_role (dt|driver_rigger) required" }, { status: 400 });
   }
 
   const supabase = await getDataClient();
@@ -83,10 +87,9 @@ export async function POST(req: Request) {
     .eq("status", "Available");
 
   const available = (assets ?? []).filter((a) => !a.assigned_to_employee_id);
-  const needsDriver = available.some((a) => a.ehs_wear_role === "driver_rigger");
 
   let teamDriverId: string | null = null;
-  if (needsDriver) {
+  if (assignWearRole === "driver_rigger") {
     const driverResolved = await resolveDriverForDt(supabase, dtEmployeeId, driverEmployeeId);
     if (!driverResolved.ok) return NextResponse.json({ message: driverResolved.message }, { status: 400 });
     teamDriverId = driverResolved.driverId;
@@ -97,7 +100,6 @@ export async function POST(req: Request) {
   const assignedIds: string[] = [];
 
   for (const row of available) {
-    const wearRole = row.ehs_wear_role as EhsWearRole | null;
     await supabase
       .from("assets")
       .update({
@@ -106,7 +108,8 @@ export async function POST(req: Request) {
         status: "Assigned",
         assigned_by: session.user.id,
         assigned_at: now,
-        ehs_for_employee_id: wearRole === "driver_rigger" ? teamDriverId : null,
+        ehs_wear_role: assignWearRole,
+        ehs_for_employee_id: assignWearRole === "driver_rigger" ? teamDriverId : null,
       })
       .eq("id", row.id);
 
@@ -116,7 +119,7 @@ export async function POST(req: Request) {
       to_employee_id: dtEmployeeId,
       assigned_by_user_id: session.user.id,
       notes:
-        wearRole === "driver_rigger" && teamDriverId
+        assignWearRole === "driver_rigger" && teamDriverId
           ? `${notesTag} — driver/rigger tool for team driver`
           : `${notesTag} — DT wear tool`,
     });

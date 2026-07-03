@@ -3,14 +3,13 @@
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { SearchableSelect, type SearchableOption } from "@/components/ui/SearchableSelect";
-import { getEhsToolType } from "@/lib/assets/ehs-tool-catalog";
+import { getEhsToolType, type EhsWearRole } from "@/lib/assets/ehs-tool-catalog";
 
 type EhsAsset = {
   id: string;
   asset_id: string | null;
   name: string | null;
   status: string;
-  ehs_wear_role: string | null;
   ehs_tool_type: string | null;
   en_code: string | null;
 };
@@ -31,6 +30,7 @@ export function PmAssignEhsToolsClient({ assets, dtTeams }: { assets: EhsAsset[]
   const router = useRouter();
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [teamId, setTeamId] = useState("");
+  const [assignWearRole, setAssignWearRole] = useState<EhsWearRole | "">("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
@@ -45,8 +45,7 @@ export function PmAssignEhsToolsClient({ assets, dtTeams }: { assets: EhsAsset[]
   );
 
   const selectedTeam = teamId ? dtTeams.find((t) => t.teamId === teamId) : undefined;
-  const selectedRows = useMemo(() => assets.filter((a) => selected.has(a.id)), [assets, selected]);
-  const needsDriver = selectedRows.some((a) => a.ehs_wear_role === "driver_rigger");
+  const needsDriver = assignWearRole === "driver_rigger";
 
   async function submit() {
     setError("");
@@ -55,12 +54,16 @@ export function PmAssignEhsToolsClient({ assets, dtTeams }: { assets: EhsAsset[]
       setError("Select a team (DT).");
       return;
     }
+    if (!assignWearRole) {
+      setError("Select whether these tools are for DT or Driver/Rigger.");
+      return;
+    }
     if (selected.size === 0) {
       setError("Select at least one EHS tool.");
       return;
     }
     if (needsDriver && !selectedTeam.driver) {
-      setError("Selected tools include Driver/Rigger items but this team has no driver.");
+      setError("Driver/Rigger assignment requires a driver on this team.");
       return;
     }
     setSubmitting(true);
@@ -72,6 +75,7 @@ export function PmAssignEhsToolsClient({ assets, dtTeams }: { assets: EhsAsset[]
           asset_ids: [...selected],
           dt_employee_id: selectedTeam.dt.id,
           driver_employee_id: selectedTeam.driver?.id ?? null,
+          assign_wear_role: assignWearRole,
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -98,6 +102,18 @@ export function PmAssignEhsToolsClient({ assets, dtTeams }: { assets: EhsAsset[]
   return (
     <div className="space-y-6">
       <SearchableSelect options={teamOptions} value={teamId} onChange={setTeamId} placeholder="Select team / DT…" />
+      <div>
+        <label className="mb-1 block text-sm font-medium text-zinc-700">Assign as</label>
+        <select
+          value={assignWearRole}
+          onChange={(e) => setAssignWearRole(e.target.value as EhsWearRole | "")}
+          className="w-full rounded border border-zinc-300 bg-white px-3 py-2 text-sm"
+        >
+          <option value="">Select wear context…</option>
+          <option value="dt">DT wear</option>
+          <option value="driver_rigger">Driver / Rigger wear</option>
+        </select>
+      </div>
       <div className="overflow-x-auto rounded-xl border border-zinc-200">
         <table className="min-w-full text-sm">
           <thead className="bg-zinc-50 text-left text-xs uppercase text-zinc-500">
@@ -105,7 +121,6 @@ export function PmAssignEhsToolsClient({ assets, dtTeams }: { assets: EhsAsset[]
               <th className="px-3 py-2" />
               <th className="px-3 py-2">Asset ID</th>
               <th className="px-3 py-2">Tool</th>
-              <th className="px-3 py-2">Wear</th>
             </tr>
           </thead>
           <tbody>
@@ -116,7 +131,6 @@ export function PmAssignEhsToolsClient({ assets, dtTeams }: { assets: EhsAsset[]
                 </td>
                 <td className="px-3 py-2 font-mono text-xs">{a.asset_id}</td>
                 <td className="px-3 py-2">{toolTypeKey(a)}</td>
-                <td className="px-3 py-2">{a.ehs_wear_role === "driver_rigger" ? "Driver/Rigger" : "DT"}</td>
               </tr>
             ))}
           </tbody>
