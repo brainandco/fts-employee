@@ -9,3 +9,12 @@ export function assetCategoryRequiresConditionPhotos(category: string | null | u
   if (!c) return true;
   return !PHOTO_EXEMPT_CATEGORIES.has(c);
 }
+
+/** Receipt / return / transfer — EHS tools always require condition photos. */
+export function assetRequiresConditionPhotos(input: {
+  category?: string | null;
+  is_ehs_tool?: boolean | null;
+}): boolean {
+  if (input.is_ehs_tool) return true;
+  return assetCategoryRequiresConditionPhotos(input.category);
+}

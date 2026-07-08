@@ -299,8 +299,7 @@ export default async function DashboardPage() {
           <div className="mt-4 flex flex-wrap gap-3">
             <Link href="/dashboard/region-employees-assets" className="rounded border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-medium text-emerald-900 hover:bg-emerald-100">Who has assets</Link>
             <Link href="/dashboard/receipt-confirmations" className="rounded border border-teal-200 bg-teal-50 px-4 py-2 text-sm font-medium text-teal-900 hover:bg-teal-100">Receipt confirmations</Link>
-            <Link href="/dashboard/assets/assign" className="rounded border border-white bg-white px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50">Assign to employee</Link>
-            <Link href="/dashboard/ehs-tools/assign" className="rounded border border-orange-200 bg-orange-50 px-4 py-2 text-sm font-medium text-orange-900 hover:bg-orange-100">Assign EHS tools</Link>
+            <Link href="/dashboard/assets/assign" className="rounded border border-white bg-white px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50">Assign assets & EHS</Link>
             <Link href="/dashboard/sims/assign" className="rounded border border-white bg-white px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50">Assign SIMs</Link>
             <Link href="/dashboard/vehicles/assign" className="rounded border border-white bg-white px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50">Assign vehicles</Link>
             <Link href="/dashboard/assets/request" className="rounded border border-indigo-200 bg-indigo-50 px-4 py-2 text-sm font-medium text-indigo-900 hover:bg-indigo-100">Request asset from admin</Link>

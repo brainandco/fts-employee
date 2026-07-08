@@ -1,6 +1,6 @@
 import { getDataClient } from "@/lib/supabase/server";
 import { getRequestAuth } from "@/lib/supabase/request-auth";
-import { assetCategoryRequiresConditionPhotos } from "@/lib/assets/asset-condition-photos";
+import { assetRequiresConditionPhotos } from "@/lib/assets/asset-condition-photos";
 import { hasMinimumPhotos, parseImageUrlArray } from "@/lib/resource-photos";
 import { NextResponse } from "next/server";
 
@@ -32,16 +32,18 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   }
 
   let assetCategory: string | null = null;
+  let isEhsTool = false;
   if (row.resource_type === "asset") {
     const { data: asset } = await supabase
       .from("assets")
-      .select("category")
+      .select("category, is_ehs_tool")
       .eq("id", row.resource_id)
       .maybeSingle();
     assetCategory = (asset?.category as string | null) ?? null;
+    isEhsTool = !!(asset as { is_ehs_tool?: boolean } | null)?.is_ehs_tool;
   }
 
-  if (row.resource_type === "asset" && assetCategoryRequiresConditionPhotos(assetCategory)) {
+  if (row.resource_type === "asset" && assetRequiresConditionPhotos({ category: assetCategory, is_ehs_tool: isEhsTool })) {
     if (!hasMinimumPhotos(receiptUrls)) {
       return NextResponse.json(
         { message: "At least 2 photos of the asset’s current condition are required to confirm receipt." },

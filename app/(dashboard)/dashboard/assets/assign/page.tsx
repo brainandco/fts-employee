@@ -5,13 +5,23 @@ import Link from "next/link";
 import { loadPmScopeIds, loadPmRegionEmployeeOptions, loadAllRegionEmployeeAssigneeOptions } from "@/lib/pm-team-assignees";
 import { resolvePortalAdminAssetAssigner } from "@/lib/portal-asset-assign-auth";
 import { PmAssignToEmployeeClient } from "./PmAssignToEmployeeClient";
+import { PmAssignEhsToolsClient } from "@/components/ehs/PmAssignEhsToolsClient";
+import { FleetEhsSectionTabs } from "@/components/ui/FleetEhsSectionTabs";
+import { parseFleetEhsTab } from "@/lib/assets/fleet-ehs-tabs";
 
-export default async function PmAssignAssetPage() {
+export default async function PmAssignAssetPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ tab?: string }>;
+}) {
   const userClient = await createServerSupabaseClient();
   const {
     data: { session },
   } = await userClient.auth.getSession();
   if (!session?.user?.id) redirect("/login");
+
+  const sp = (await Promise.resolve(searchParams ?? {})) as { tab?: string };
+  const tab = parseFleetEhsTab(sp.tab);
 
   const email = (session.user.email ?? "").trim();
   const supabase = await getDataClient();
@@ -59,6 +69,16 @@ export default async function PmAssignAssetPage() {
     }));
   }
 
+  let allowedRegionIds: string[] = [];
+  if (isPm && employee) {
+    const scope = await loadPmScopeIds(
+      supabase,
+      { id: employee.id, region_id: employee.region_id, project_id: employee.project_id },
+      session.user.id
+    );
+    allowedRegionIds = scope.allowedRegionIds;
+  }
+
   if (isPortalAdmin) {
     const { data: catalogRows } = await supabase
       .from("assets")
@@ -77,7 +97,6 @@ export default async function PmAssignAssetPage() {
       region_id: employee.region_id,
       project_id: employee.project_id,
     };
-    const { allowedRegionIds } = await loadPmScopeIds(supabase, pmCtx, session.user.id);
     const assetsRegionOr =
       allowedRegionIds.length > 0
         ? `assigned_region_id.is.null,assigned_region_id.in.(${allowedRegionIds.join(",")})`
@@ -97,6 +116,62 @@ export default async function PmAssignAssetPage() {
     });
   }
 
+  let ehsAssetsQuery = supabase
+    .from("assets")
+    .select("id, asset_id, name, status, ehs_tool_type, en_code, assigned_region_id")
+    .eq("is_ehs_tool", true)
+    .eq("status", "Available")
+    .is("assigned_to_employee_id", null)
+    .order("asset_id");
+
+  if (isPm && allowedRegionIds.length > 0) {
+    const orParts = [...allowedRegionIds.map((id) => `assigned_region_id.eq.${id}`), "assigned_region_id.is.null"];
+    ehsAssetsQuery = ehsAssetsQuery.or(orParts.join(","));
+  }
+
+  let teamsQuery = supabase
+    .from("teams")
+    .select("id, name, dt_employee_id, driver_rigger_employee_id")
+    .not("dt_employee_id", "is", null)
+    .order("name");
+
+  if (isPm && allowedRegionIds.length > 0) {
+    teamsQuery = teamsQuery.in("region_id", allowedRegionIds);
+  }
+
+  const [{ data: ehsAssets }, { data: teamsRaw }] = await Promise.all([ehsAssetsQuery, teamsQuery]);
+
+  const teamEmpIds = [
+    ...new Set(
+      (teamsRaw ?? []).flatMap((t) => [t.dt_employee_id, t.driver_rigger_employee_id].filter(Boolean) as string[])
+    ),
+  ];
+  const { data: teamEmps } = teamEmpIds.length
+    ? await supabase.from("employees").select("id, full_name, email, status").in("id", teamEmpIds)
+    : { data: [] };
+  const empMap = new Map(
+    (teamEmps ?? []).map((e) => [e.id, { full_name: (e.full_name ?? e.email ?? "—").trim() || "—", status: e.status }])
+  );
+
+  const dtTeams = (teamsRaw ?? [])
+    .filter((t) => {
+      const dt = t.dt_employee_id ? empMap.get(t.dt_employee_id as string) : null;
+      return dt && dt.status === "ACTIVE";
+    })
+    .map((t) => {
+      const dt = empMap.get(t.dt_employee_id as string)!;
+      const driver = t.driver_rigger_employee_id ? empMap.get(t.driver_rigger_employee_id as string) : null;
+      return {
+        teamId: t.id as string,
+        teamName: (t.name as string)?.trim() || "Team",
+        dt: { id: t.dt_employee_id as string, full_name: dt.full_name },
+        driver:
+          driver && driver.status === "ACTIVE"
+            ? { id: t.driver_rigger_employee_id as string, full_name: driver.full_name }
+            : null,
+      };
+    });
+
   const viewerRole = isPortalAdmin ? "admin" : "pm";
 
   return (
@@ -114,28 +189,30 @@ export default async function PmAssignAssetPage() {
             <span aria-hidden>/</span>
           </>
         ) : null}
-        <span className="text-zinc-900">Assign assets</span>
+        <span className="text-zinc-900">Assign</span>
       </nav>
-      <div className="rounded-2xl border border-indigo-200 bg-gradient-to-r from-indigo-50 to-violet-50 p-5 sm:p-6">
+      <div
+        className={`rounded-2xl border p-5 sm:p-6 ${
+          tab === "ehs"
+            ? "border-orange-200 bg-gradient-to-r from-orange-50 to-amber-50"
+            : "border-indigo-200 bg-gradient-to-r from-indigo-50 to-violet-50"
+        }`}
+      >
         <div>
-          <h1 className="text-2xl font-semibold text-zinc-900">Assign assets</h1>
+          <h1 className="text-2xl font-semibold text-zinc-900">Assign assets & EHS tools</h1>
           <p className="mt-1 text-sm text-zinc-600">
-            {viewerRole === "admin" ? (
-              <>
-                Assign available assets to an eligible employee by <strong>region</strong> (QC excluded). Search the list
-                to pick who receives the selected assets.
-              </>
-            ) : (
-              <>
-                Assign to an <strong>active employee in your regions</strong> (primary and any extra regions from Admin).
-                QC cannot receive assets. Use the search field to find the right person.
-              </>
-            )}
+            {tab === "ehs"
+              ? "Assign EHS tools to a team DT. Choose DT or Driver/Rigger wear when assigning."
+              : viewerRole === "admin"
+                ? "Assign fleet assets to an eligible employee by region (QC excluded)."
+                : "Assign fleet assets to active employees in your regions (QC excluded)."}
           </p>
         </div>
         <div className="mt-4 flex flex-wrap items-center gap-2">
           <span className="rounded-full bg-white px-3 py-1 text-xs font-medium text-zinc-700 ring-1 ring-zinc-200">
-            Eligible employees: {assignees.length}
+            {tab === "ehs"
+              ? `Teams: ${dtTeams.length} · Available EHS: ${(ehsAssets ?? []).length}`
+              : `Eligible: ${assignees.length} · Available fleet: ${assets.length}`}
           </span>
           {viewerRole === "pm" ? (
             <Link
@@ -154,12 +231,26 @@ export default async function PmAssignAssetPage() {
           )}
         </div>
       </div>
-      <PmAssignToEmployeeClient
-        assets={assets ?? []}
-        searchCatalog={searchCatalog}
-        assignees={assignees}
-        viewerRole={viewerRole}
+
+      <FleetEhsSectionTabs
+        activeTab={tab}
+        basePath="/dashboard/assets/assign"
+        fleetCount={assets.length}
+        ehsCount={(ehsAssets ?? []).length}
       />
+
+      <div className="rounded-b-xl border border-t-0 border-zinc-200 bg-white p-4 sm:p-6">
+        {tab === "fleet" ? (
+          <PmAssignToEmployeeClient
+            assets={assets ?? []}
+            searchCatalog={searchCatalog}
+            assignees={assignees}
+            viewerRole={viewerRole}
+          />
+        ) : (
+          <PmAssignEhsToolsClient assets={ehsAssets ?? []} dtTeams={dtTeams} />
+        )}
+      </div>
     </div>
   );
 }

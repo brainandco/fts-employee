@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { resolveEmployeePortalAccess } from "@/lib/auth/portal-access";
-import { assetCategoryRequiresConditionPhotos } from "@/lib/assets/asset-condition-photos";
+import { assetRequiresConditionPhotos } from "@/lib/assets/asset-condition-photos";
 import { getDataClient } from "@/lib/supabase/server";
 import { getRequestAuth } from "@/lib/supabase/request-auth";
 
@@ -28,7 +28,7 @@ export async function GET(req: Request) {
   const vehicleIds = rows.filter((r) => r.resource_type === "vehicle").map((r) => r.resource_id);
 
   const [assetsRes, simsRes, vehiclesRes] = await Promise.all([
-    assetIds.length ? supabase.from("assets").select("id, name, serial, category").in("id", assetIds) : { data: [] },
+    assetIds.length ? supabase.from("assets").select("id, name, serial, category, is_ehs_tool").in("id", assetIds) : { data: [] },
     simIds.length ? supabase.from("sim_cards").select("id, sim_number, operator").in("id", simIds) : { data: [] },
     vehicleIds.length
       ? supabase.from("vehicles").select("id, plate_number, make, model").in("id", vehicleIds)
@@ -62,9 +62,10 @@ export async function GET(req: Request) {
       asset_category: r.resource_type === "asset" ? ((assetMap.get(r.resource_id as string) as { category?: string } | undefined)?.category ?? null) : null,
       requires_condition_photos:
         r.resource_type === "asset"
-          ? assetCategoryRequiresConditionPhotos(
-              (assetMap.get(r.resource_id as string) as { category?: string } | undefined)?.category ?? null
-            )
+          ? assetRequiresConditionPhotos({
+              category: (assetMap.get(r.resource_id as string) as { category?: string } | undefined)?.category ?? null,
+              is_ehs_tool: (assetMap.get(r.resource_id as string) as { is_ehs_tool?: boolean } | undefined)?.is_ehs_tool,
+            })
           : false,
     };
   });

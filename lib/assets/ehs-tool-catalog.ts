@@ -30,6 +30,7 @@ export const EHS_TOOL_TYPES: EhsToolTypeDef[] = [
 
 const byKey = new Map(EHS_TOOL_TYPES.map((t) => [t.key, t]));
 
-export function getEhsToolType(key: string): EhsToolTypeDef | undefined {
+export function getEhsToolType(key: string | null | undefined): EhsToolTypeDef | undefined {
+  if (!key || typeof key !== "string") return undefined;
   return byKey.get(key.trim());
 }

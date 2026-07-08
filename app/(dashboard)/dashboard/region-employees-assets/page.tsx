@@ -11,13 +11,22 @@ import {
   type SimLine,
 } from "./RegionEmployeesWithAssetsClient";
 import { TeamEhsToolsPanel } from "@/components/ehs/TeamEhsToolsPanel";
+import { FleetEhsSectionTabs } from "@/components/ui/FleetEhsSectionTabs";
+import { parseFleetEhsTab } from "@/lib/assets/fleet-ehs-tabs";
 
-export default async function RegionEmployeesWithAssetsPage() {
+export default async function RegionEmployeesWithAssetsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ tab?: string }>;
+}) {
   const userClient = await createServerSupabaseClient();
   const {
     data: { session },
   } = await userClient.auth.getSession();
   if (!session) redirect("/login");
+
+  const sp = (await Promise.resolve(searchParams ?? {})) as { tab?: string };
+  const tab = parseFleetEhsTab(sp.tab);
 
   const supabase = await getDataClient();
   const email = (session.user.email ?? "").trim().toLowerCase();
@@ -179,31 +188,39 @@ export default async function RegionEmployeesWithAssetsPage() {
         <div className="mt-3 flex flex-wrap items-end justify-between gap-4">
           <div>
             <p className="text-xs font-semibold uppercase tracking-widest text-indigo-600/90">Employee portal · PM / QC</p>
-            <h1 className="mt-1 text-3xl font-bold tracking-tight text-zinc-900">Who has assets</h1>
+            <h1 className="mt-1 text-3xl font-bold tracking-tight text-zinc-900">Who has assets & EHS tools</h1>
             <p className="mt-2 max-w-2xl text-sm leading-relaxed text-zinc-600">
-              Active colleagues in <span className="font-semibold text-zinc-800">{regionLabel}</span> who currently hold
-              at least one asset or SIM. Assets include under maintenance, damaged, or with QC while still on assignment.
-              SIM cards appear in a separate section under each person. Receipt status is shown for both.
+              {tab === "ehs"
+                ? "EHS tools by team: DT wear and Driver/Rigger wear (held by DT, linked to team driver)."
+                : (
+                  <>
+                    Active colleagues in <span className="font-semibold text-zinc-800">{regionLabel}</span> who currently hold
+                    at least one fleet asset or SIM. Receipt status is shown for both.
+                  </>
+                )}
             </p>
           </div>
         </div>
       </div>
 
-      <RegionEmployeesWithAssetsClient
-        employees={withAssetsList}
-        regionLabel={regionLabel}
-        withoutCount={withoutCount}
+      <FleetEhsSectionTabs
+        activeTab={tab}
+        basePath="/dashboard/region-employees-assets"
+        fleetCount={withAssetsList.length}
+        ehsCount={ehsTeamBlocks.length}
       />
 
-      <section className="space-y-4">
-        <div>
-          <h2 className="text-xl font-semibold text-zinc-900">EHS tools by team</h2>
-          <p className="mt-1 text-sm text-zinc-600">
-            DT wear and Driver/Rigger wear tools assigned per team (held by DT, driver tools linked to team driver).
-          </p>
-        </div>
-        <TeamEhsToolsPanel teams={ehsTeamBlocks} />
-      </section>
+      <div className="rounded-b-xl border border-t-0 border-zinc-200 bg-white p-4 sm:p-6">
+        {tab === "fleet" ? (
+          <RegionEmployeesWithAssetsClient
+            employees={withAssetsList}
+            regionLabel={regionLabel}
+            withoutCount={withoutCount}
+          />
+        ) : (
+          <TeamEhsToolsPanel teams={ehsTeamBlocks} />
+        )}
+      </div>
     </div>
   );
 }

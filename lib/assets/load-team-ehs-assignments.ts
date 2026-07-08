@@ -40,7 +40,7 @@ export async function loadTeamEhsAssignments(
   const dtIds = (teams ?? []).map((t) => t.dt_employee_id).filter(Boolean) as string[];
   if (dtIds.length === 0) return [];
 
-  const { data: ehsAssets } = await supabase
+  const { data: ehsAssets, error: ehsError } = await supabase
     .from("assets")
     .select(
       "id, asset_id, name, ehs_tool_type, ehs_wear_role, en_code, status, assigned_to_employee_id, ehs_for_employee_id"
@@ -49,15 +49,22 @@ export async function loadTeamEhsAssignments(
     .in("assigned_to_employee_id", dtIds)
     .in("status", ["Assigned", "Under_Maintenance", "Damaged", "With_QC", "Pending_Return"]);
 
+  if (ehsError) {
+    console.error("[loadTeamEhsAssignments]", ehsError.message);
+    return [];
+  }
+
   const byDt = new Map<string, EhsToolLine[]>();
   for (const a of ehsAssets ?? []) {
     const dtId = a.assigned_to_employee_id as string;
+    if (!dtId) continue;
     const list = byDt.get(dtId) ?? [];
+    const typeKey = (a.ehs_tool_type as string | null) ?? null;
     list.push({
       id: a.id as string,
       asset_id: a.asset_id as string | null,
-      name: (a.name as string) ?? getEhsToolType(a.ehs_tool_type as string)?.label ?? "EHS tool",
-      ehs_tool_type: a.ehs_tool_type as string | null,
+      name: (a.name as string) ?? getEhsToolType(typeKey)?.label ?? "EHS tool",
+      ehs_tool_type: typeKey,
       ehs_wear_role: a.ehs_wear_role as string | null,
       en_code: a.en_code as string | null,
       status: a.status as string,

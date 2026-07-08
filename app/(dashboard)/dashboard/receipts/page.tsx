@@ -3,7 +3,7 @@ import { getDataClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import { PendingReceiptRow, type PendingReceiptDisplay } from "@/components/receipts/PendingReceiptRow";
-import { assetCategoryRequiresConditionPhotos } from "@/lib/assets/asset-condition-photos";
+import { assetRequiresConditionPhotos } from "@/lib/assets/asset-condition-photos";
 
 export default async function ReceiptsPage() {
   const userClient = await createServerSupabaseClient();
@@ -29,7 +29,7 @@ export default async function ReceiptsPage() {
 
   const [assetsRes, simsRes, vehiclesRes] = await Promise.all([
     assetIds.length
-      ? supabase.from("assets").select("id, name, serial, category").in("id", assetIds)
+      ? supabase.from("assets").select("id, name, serial, category, is_ehs_tool").in("id", assetIds)
       : { data: [] },
     simIds.length
       ? supabase.from("sim_cards").select("id, sim_number, operator").in("id", simIds)
@@ -62,9 +62,11 @@ export default async function ReceiptsPage() {
       assigned_at: r.assigned_at as string,
       requiresConditionPhotos:
         r.resource_type === "asset"
-          ? assetCategoryRequiresConditionPhotos(
-              (assetMap.get(r.resource_id) as { category?: string | null } | undefined)?.category ?? null
-            )
+          ? assetRequiresConditionPhotos({
+              category: (assetMap.get(r.resource_id) as { category?: string | null; is_ehs_tool?: boolean } | undefined)
+                ?.category ?? null,
+              is_ehs_tool: (assetMap.get(r.resource_id) as { is_ehs_tool?: boolean } | undefined)?.is_ehs_tool,
+            })
           : undefined,
     };
   });

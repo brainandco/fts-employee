@@ -106,6 +106,7 @@ export async function loadPmAssignAssetsData(
   const { data: catalogRows } = await supabase
     .from("assets")
     .select("id, name, category, model, serial, imei_1, imei_2, status, assigned_to_employee_id")
+    .eq("is_ehs_tool", false)
     .or(assetsRegionOr)
     .order("name");
 
@@ -224,6 +225,7 @@ export async function loadPmWhoHasAssetsData(
     ? await supabase
         .from("assets")
         .select("id, name, model, serial, category, status, assigned_to_employee_id")
+        .eq("is_ehs_tool", false)
         .in("assigned_to_employee_id", empIds)
         .in("status", ["Assigned", "Under_Maintenance", "Damaged", "With_QC"])
         .order("name")
