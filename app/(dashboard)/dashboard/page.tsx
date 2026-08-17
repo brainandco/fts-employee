@@ -9,6 +9,7 @@ import { PmProjectTypeAssetCards } from "@/components/pm/PmProjectTypeAssetCards
 import { AssignedAssetsList } from "@/components/assets/AssignedAssetsList";
 import { EhsAssignedToolsList } from "@/components/assets/EhsAssignedToolsList";
 import { ReturnVehicleButton } from "@/components/returns/ReturnVehicleButton";
+import { OdometerSubmitButton } from "@/components/odometer/OdometerSubmitButton";
 import { ReturnSimButton } from "@/components/returns/ReturnSimButton";
 
 export default async function DashboardPage() {
@@ -52,6 +53,9 @@ export default async function DashboardPage() {
   const showPpTeamLeaveLink = canAccessPpTeamLeaveRequests(myRoles ?? []);
   const isProjectCoordinator = (myRoles ?? []).some((r) => r.role === "Project Coordinator");
   const isDriverOrSelfDt = (myRoles ?? []).some((r) => r.role === "Driver/Rigger" || r.role === "Self DT");
+  const canSubmitOdometer = (myRoles ?? []).some(
+    (r) => r.role === "Driver/Rigger" || r.role === "Self DT" || r.role === "QA"
+  );
   const isDtRole = (myRoles ?? []).some((r) => r.role === "DT" || r.role === "Junior DT" || r.role === "Self DT");
 
   const [regionRes, assetsRes, simsRes, assignmentsRes, tasksRes, approvalsRes, regionEmployeesRes, pendingReceiptsRes] = await Promise.all([
@@ -431,11 +435,19 @@ export default async function DashboardPage() {
           ) : (
             <ul className="mt-3 space-y-2 rounded-xl border border-sky-100 bg-sky-50/40 p-4 text-sm text-zinc-700">
               {(vehicles ?? []).map((v) => (
-                <li key={v.id} className="flex flex-wrap items-center gap-2">
-                  <span className="font-medium">{v.plate_number}</span>
-                  {(v.make || v.model) && <span className="text-zinc-500"> — {[v.make, v.model].filter(Boolean).join(" ")}</span>}
-                  {isDriverOrSelfDt ? (
-                    <ReturnVehicleButton plateLabel={[v.plate_number, v.make, v.model].filter(Boolean).join(" · ")} />
+                <li key={v.id} className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="font-medium">{v.plate_number}</span>
+                    {(v.make || v.model) && <span className="text-zinc-500"> — {[v.make, v.model].filter(Boolean).join(" ")}</span>}
+                    {isDriverOrSelfDt ? (
+                      <ReturnVehicleButton plateLabel={[v.plate_number, v.make, v.model].filter(Boolean).join(" · ")} />
+                    ) : null}
+                  </div>
+                  {canSubmitOdometer ? (
+                    <OdometerSubmitButton
+                      vehicleId={v.id}
+                      plateLabel={[v.plate_number, v.make, v.model].filter(Boolean).join(" · ")}
+                    />
                   ) : null}
                 </li>
               ))}

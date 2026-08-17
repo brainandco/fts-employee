@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { getDataClient } from "@/lib/supabase/server";
 import { getRequestAuth } from "@/lib/supabase/request-auth";
 import { createServerSupabaseAdmin } from "@/lib/supabase/admin";
+import { isVehicleAssigneeRole } from "@/lib/employees/vehicle-assignment-roles";
 
 const MAX_BYTES = 5 * 1024 * 1024;
 const ALLOWED_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
@@ -95,11 +96,32 @@ export async function POST(req: Request) {
       return NextResponse.json({ message: "No vehicle assigned" }, { status: 400 });
     }
     subPath = `returns/vehicles/${assignment.vehicle_id}/${employee.id}`;
+  } else if (purpose === "odometer-reading") {
+    const vehicleId =
+      typeof formData.get("vehicle_id") === "string" ? String(formData.get("vehicle_id")).trim() : "";
+    if (!vehicleId) {
+      return NextResponse.json({ message: "vehicle_id is required for odometer-reading" }, { status: 400 });
+    }
+    const { data: roleRows } = await supabase.from("employee_roles").select("role").eq("employee_id", employee.id);
+    const roles = (roleRows ?? []).map((r) => r.role as string);
+    if (!roles.some((r) => isVehicleAssigneeRole(r))) {
+      return NextResponse.json({ message: "Only vehicle assignees can upload odometer photos" }, { status: 403 });
+    }
+    const { data: assignment } = await supabase
+      .from("vehicle_assignments")
+      .select("vehicle_id")
+      .eq("employee_id", employee.id)
+      .eq("vehicle_id", vehicleId)
+      .maybeSingle();
+    if (!assignment?.vehicle_id) {
+      return NextResponse.json({ message: "This vehicle is not assigned to you" }, { status: 403 });
+    }
+    subPath = `odometer/${vehicleId}/${employee.id}`;
   } else {
     return NextResponse.json(
       {
         message:
-          "purpose must be asset-return, vehicle-return, receipt-confirmation, or asset-transfer-handover",
+          "purpose must be asset-return, vehicle-return, receipt-confirmation, asset-transfer-handover, or odometer-reading",
       },
       { status: 400 }
     );
