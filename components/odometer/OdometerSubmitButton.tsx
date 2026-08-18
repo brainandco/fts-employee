@@ -55,6 +55,7 @@ export function OdometerSubmitButton({
   const [accuracyM, setAccuracyM] = useState<number | null>(null);
   const [locationLabel, setLocationLabel] = useState("");
   const [capturedAt, setCapturedAt] = useState<string>(new Date().toISOString());
+  const [activityNotes, setActivityNotes] = useState("");
 
   const canAnalyze = Boolean(plateUrl && odoUrls.length > 0);
   const quotaHint = useMemo(() => {
@@ -76,6 +77,7 @@ export function OdometerSubmitButton({
     setAccuracyM(null);
     setLocationLabel("");
     setCapturedAt(new Date().toISOString());
+    setActivityNotes("");
   }
 
   function readGps() {
@@ -199,6 +201,11 @@ export function OdometerSubmitButton({
       setError("GPS required — allow location and tap Refresh GPS");
       return;
     }
+    const notes = activityNotes.trim();
+    if (notes.length < 8) {
+      setError("Write the activity you went for (at least 8 characters).");
+      return;
+    }
     setBusy(true);
     setError("");
     try {
@@ -221,6 +228,7 @@ export function OdometerSubmitButton({
           ocr_odometer_raw: analysis?.odometer.raw ?? null,
           ocr_status: analysis?.ocrStatus ?? "failed",
           ocr_units_used: analysis?.ocrUnitsUsed ?? 0,
+          activity_notes: notes,
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -277,8 +285,8 @@ export function OdometerSubmitButton({
       </div>
       <p className="mt-1 text-xs text-zinc-600">
         {slot === "start"
-          ? "Duty starts only after plate + odometer photos, GPS, and km are saved."
-          : "Duty ends only after plate + odometer photos, GPS, and km are saved."}{" "}
+          ? "Duty starts only after plate + odometer photos, GPS, km, and activity notes are saved."
+          : "Duty ends only after plate + odometer photos, GPS, km, and activity notes are saved."}{" "}
         Live camera only (no gallery).
       </p>
 
@@ -337,6 +345,19 @@ export function OdometerSubmitButton({
             : "GPS not set"}
         </span>
       </div>
+
+      <label className="mt-3 block">
+        <span className="text-xs font-medium text-zinc-800">Activity notes (required)</span>
+        <textarea
+          value={activityNotes}
+          onChange={(e) => setActivityNotes(e.target.value)}
+          rows={3}
+          maxLength={500}
+          placeholder="What activity did you go for? QC will check this."
+          className="mt-1 w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm"
+        />
+        <span className="mt-0.5 block text-[11px] text-zinc-500">{activityNotes.trim().length}/500</span>
+      </label>
 
       <div className="mt-3 flex flex-wrap gap-2">
         <button

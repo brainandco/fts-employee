@@ -38,6 +38,7 @@ export async function POST(req: Request) {
     ocrOdometerRaw: typeof body.ocr_odometer_raw === "string" ? body.ocr_odometer_raw : null,
     ocrStatus: body.ocr_status === "failed" || body.ocr_status === "skipped_quota" ? body.ocr_status : "ok",
     ocrUnitsUsed: Number(body.ocr_units_used) || 0,
+    activityNotes: typeof body.activity_notes === "string" ? body.activity_notes : "",
   });
 
   if (result.error) return NextResponse.json({ message: result.error }, { status: result.status });

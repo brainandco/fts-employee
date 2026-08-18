@@ -11,6 +11,7 @@ export type OdometerReadingRow = {
   lng: number | null;
   accuracy_m?: number | null;
   location_label?: string | null;
+  activity_notes?: string | null;
   plate_number_final: string;
   odometer_km_final: number;
   plate_photo_url: string;
@@ -45,12 +46,14 @@ export type DailyOdoSummary = {
   morningMapsUrl: string;
   morningPlatePhoto: string;
   morningOdoPhotos: string;
+  morningNotes: string;
   eveningKm: number | null;
   eveningAt: string | null;
   eveningGps: string;
   eveningMapsUrl: string;
   eveningPlatePhoto: string;
   eveningOdoPhotos: string;
+  eveningNotes: string;
   /** end − start for this duty. Null until both exist. */
   todayKm: number | null;
   /** End-of-duty total: end, else start. */
@@ -174,12 +177,14 @@ export function buildDailySummaries(
       morningMapsUrl: mapsUrl(start?.lat ?? null, start?.lng ?? null),
       morningPlatePhoto: start?.plate_photo_url ?? "",
       morningOdoPhotos: photoList(start?.odometer_photo_urls),
+      morningNotes: (start?.activity_notes ?? "").trim(),
       eveningKm,
       eveningAt: end?.captured_at ?? null,
       eveningGps: gps(end?.lat ?? null, end?.lng ?? null, end?.location_label),
       eveningMapsUrl: mapsUrl(end?.lat ?? null, end?.lng ?? null),
       eveningPlatePhoto: end?.plate_photo_url ?? "",
       eveningOdoPhotos: photoList(end?.odometer_photo_urls),
+      eveningNotes: (end?.activity_notes ?? "").trim(),
       todayKm,
       dayTotalKm,
       previousDate,

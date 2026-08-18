@@ -16,12 +16,12 @@ function safeRedirectTo(raw: string, baseUrl: string): string {
 }
 
 /**
- * Employee portal login. Only allows sign-in if the email exists in employees
- * table with status ACTIVE (created by Super User in admin).
+ * Employee portal login. Driver/Rigger may use Iqama + password; other roles use email.
  */
 export async function POST(request: NextRequest) {
   const formData = await request.formData();
-  const email = (formData.get("email") as string) || "";
+  const identifier =
+    ((formData.get("identifier") as string) || (formData.get("email") as string) || "").trim();
   const password = (formData.get("password") as string) || "";
   const redirectTo = safeRedirectTo((formData.get("redirectTo") as string) || "/dashboard", request.url);
   const wantsJson = request.headers.get("accept")?.includes("application/json");
@@ -29,11 +29,20 @@ export async function POST(request: NextRequest) {
   const loginUrl = new URL("/login", request.url);
   loginUrl.searchParams.set("redirect", redirectTo);
 
-  if (!email?.trim() || !password) {
-    if (wantsJson) return NextResponse.json({ error: "Email and password required" }, { status: 400 });
-    loginUrl.searchParams.set("error", encodeURIComponent("Email and password required"));
+  if (!identifier || !password) {
+    if (wantsJson) return NextResponse.json({ error: "Iqama or email and password required" }, { status: 400 });
+    loginUrl.searchParams.set("error", encodeURIComponent("Iqama or email and password required"));
     return NextResponse.redirect(loginUrl, 302);
   }
+
+  const { resolveLoginEmailFromIdentifier } = await import("@/lib/auth/resolve-driver-login-email");
+  const resolved = await resolveLoginEmailFromIdentifier(identifier);
+  if (!resolved.ok) {
+    if (wantsJson) return NextResponse.json({ error: resolved.message }, { status: resolved.status });
+    loginUrl.searchParams.set("error", encodeURIComponent(resolved.message));
+    return NextResponse.redirect(loginUrl, 302);
+  }
+  const email = resolved.email;
 
   const redirectResponse = NextResponse.redirect(new URL(redirectTo, request.url), { status: 303 });
   const jsonResponse = NextResponse.json({ ok: true, redirectTo });

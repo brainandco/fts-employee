@@ -50,6 +50,7 @@ export type ConfirmOdometerInput = {
   ocrOdometerRaw: string | null;
   ocrStatus: "ok" | "failed" | "skipped_quota";
   ocrUnitsUsed: number;
+  activityNotes: string;
 };
 
 function parseUrlList(input: unknown): string[] {
@@ -59,6 +60,23 @@ function parseUrlList(input: unknown): string[] {
 
 export function normalizeOdometerPhotoUrls(input: unknown): string[] {
   return parseUrlList(input);
+}
+
+export const ACTIVITY_NOTES_MIN = 8;
+export const ACTIVITY_NOTES_MAX = 500;
+
+export function normalizeActivityNotes(raw: unknown): { ok: true; value: string } | { ok: false; error: string } {
+  const s = typeof raw === "string" ? raw.trim().replace(/\s+/g, " ") : "";
+  if (s.length < ACTIVITY_NOTES_MIN) {
+    return {
+      ok: false,
+      error: `Write the activity you went for (at least ${ACTIVITY_NOTES_MIN} characters).`,
+    };
+  }
+  if (s.length > ACTIVITY_NOTES_MAX) {
+    return { ok: false, error: `Activity notes must be ${ACTIVITY_NOTES_MAX} characters or less.` };
+  }
+  return { ok: true, value: s };
 }
 
 export async function loadAssigneeContext(supabase: SupabaseClient, employeeId: string, vehicleId: string) {
@@ -238,6 +256,8 @@ export async function confirmOdometerReading(
   if (input.lat == null || input.lng == null || !Number.isFinite(input.lat) || !Number.isFinite(input.lng)) {
     return { error: "GPS is required to start or end duty", status: 400 };
   }
+  const notes = normalizeActivityNotes(input.activityNotes);
+  if (!notes.ok) return { error: notes.error, status: 400 };
 
   const ctx = await loadAssigneeContext(supabase, employeeId, input.vehicleId);
   if ("error" in ctx && ctx.error) return { error: ctx.error, status: ctx.status };
@@ -309,6 +329,7 @@ export async function confirmOdometerReading(
       lng: input.lng,
       accuracy_m: input.accuracyM,
       location_label: locationLabel,
+      activity_notes: notes.value,
       plate_photo_url: input.platePhotoUrl,
       odometer_photo_urls: odoUrls,
       ocr_plate_raw: input.ocrPlateRaw,
@@ -372,6 +393,7 @@ export async function confirmOdometerReading(
     lng: input.lng,
     accuracy_m: input.accuracyM,
     location_label: locationLabel,
+    activity_notes: notes.value,
     plate_photo_url: input.platePhotoUrl,
     odometer_photo_urls: odoUrls,
     ocr_plate_raw: input.ocrPlateRaw,

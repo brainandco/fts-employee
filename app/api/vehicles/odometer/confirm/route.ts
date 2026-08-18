@@ -48,6 +48,7 @@ export async function POST(req: Request) {
     ocrOdometerRaw: typeof body.ocr_odometer_raw === "string" ? body.ocr_odometer_raw : null,
     ocrStatus,
     ocrUnitsUsed,
+    activityNotes: typeof body.activity_notes === "string" ? body.activity_notes : "",
   });
 
   if (result.error) return NextResponse.json({ message: result.error }, { status: result.status });

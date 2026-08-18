@@ -21,6 +21,8 @@ export const ODOMETER_SHEET_HEADER = [
   "Shift total KM",
   "Start location",
   "End location",
+  "Start activity",
+  "End activity",
   "Start plate photo",
   "Start odometer photos",
   "End plate photo",
@@ -37,7 +39,7 @@ function historyTab(): string {
 }
 
 function colLetter(n: number): string {
-  // 1-based: 1=A ... 23=W
+  // 1-based column index → A, B, ...
   let s = "";
   let x = n;
   while (x > 0) {
@@ -70,6 +72,8 @@ export function summaryToSheetRow(row: DailyOdoSummary): string[] {
     dashKm(row.dayTotalKm),
     row.morningGps,
     row.eveningGps,
+    row.morningNotes,
+    row.eveningNotes,
     row.morningPlatePhoto,
     row.morningOdoPhotos,
     row.eveningPlatePhoto,

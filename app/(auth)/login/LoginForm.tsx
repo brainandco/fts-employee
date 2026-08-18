@@ -39,10 +39,10 @@ export function LoginForm() {
     setSubmitError(null);
     const form = e.currentTarget;
     const fd = new FormData(form);
-    const email = (fd.get("email") as string)?.trim();
+    const identifier = (fd.get("identifier") as string)?.trim();
     const password = fd.get("password") as string;
-    if (!email || !password) {
-      setSubmitError("Email and password required");
+    if (!identifier || !password) {
+      setSubmitError("Iqama or email and password required");
       return;
     }
     setLoading(true);
@@ -129,19 +129,23 @@ export function LoginForm() {
             <div className="mb-6 text-center lg:text-left">
               <p className="mb-1 text-xs font-semibold uppercase tracking-[0.2em] text-teal-700">Fast Technology Solutions</p>
               <h1 className="text-2xl font-bold tracking-tight text-slate-900">Employee Portal</h1>
-              <p className="mt-2 text-sm text-slate-600">Use the email and password from your administrator.</p>
+              <p className="mt-2 text-sm text-slate-600">
+                Driver/Rigger: Iqama number and the password from admin. Other roles: email and password.
+              </p>
             </div>
             <form onSubmit={handleSubmit} className="space-y-4">
               <div>
-                <label htmlFor="email" className="mb-1 block text-sm font-medium text-slate-700">
-                  Email
+                <label htmlFor="identifier" className="mb-1 block text-sm font-medium text-slate-700">
+                  Iqama or email
                 </label>
                 <input
-                  id="email"
-                  name="email"
-                  type="email"
+                  id="identifier"
+                  name="identifier"
+                  type="text"
                   required
-                  autoComplete="email"
+                  autoComplete="username"
+                  inputMode="text"
+                  placeholder="Iqama number or email"
                   className="fts-input w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm"
                 />
               </div>
