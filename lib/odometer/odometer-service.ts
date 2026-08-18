@@ -5,10 +5,12 @@ import { parsePlateCandidates } from "@/lib/ocr/parse-plate";
 import { getOcrUsageThisMonth } from "@/lib/ocr/quota";
 import { syncOdometerSheetsAfterSave } from "@/lib/odometer/sync-sheets";
 import { reverseGeocodeLatLng } from "@/lib/odometer/reverse-geocode";
+import { normalizeDutySlot, riyadhIsoDate, type DutySlot } from "@/lib/odometer/duty-slot";
+import { notifyVehicleDutyAdmins } from "@/lib/notify-vehicle-duty-admins";
 import { createServerSupabaseAdmin } from "@/lib/supabase/admin";
 import { isVehicleAssigneeRole, VEHICLE_ASSIGNEE_ROLES_LABEL } from "@/lib/employees/vehicle-assignment-roles";
 
-export type OdometerSlot = "morning" | "evening";
+export type OdometerSlot = DutySlot | "morning" | "evening";
 
 export type AnalyzeOdometerInput = {
   vehicleId: string;
@@ -199,16 +201,23 @@ export async function analyzeOdometerPhotos(
   };
 }
 
+type OpenShiftRow = {
+  id: string;
+  vehicle_id: string;
+  employee_id: string;
+  start_km: number;
+  shift_date: string;
+  started_at: string;
+};
+
 export async function confirmOdometerReading(
   supabase: SupabaseClient,
   employeeId: string,
   input: ConfirmOdometerInput
-): Promise<{ data?: { id: string }; error?: string; status: number }> {
-  if (input.slot !== "morning" && input.slot !== "evening") {
-    return { error: "slot must be morning or evening", status: 400 };
-  }
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(input.readingDate)) {
-    return { error: "reading_date must be YYYY-MM-DD", status: 400 };
+): Promise<{ data?: { id: string; dutyStatus: "open" | "closed"; shiftId: string }; error?: string; status: number }> {
+  const slot = normalizeDutySlot(input.slot);
+  if (!slot) {
+    return { error: "slot must be start or end", status: 400 };
   }
   if (!input.platePhotoUrl?.startsWith("http")) {
     return { error: "plate_photo_url is required", status: 400 };
@@ -226,23 +235,139 @@ export async function confirmOdometerReading(
   if (Number.isNaN(capturedAt.getTime())) {
     return { error: "captured_at must be a valid ISO timestamp", status: 400 };
   }
+  if (input.lat == null || input.lng == null || !Number.isFinite(input.lat) || !Number.isFinite(input.lng)) {
+    return { error: "GPS is required to start or end duty", status: 400 };
+  }
 
   const ctx = await loadAssigneeContext(supabase, employeeId, input.vehicleId);
   if ("error" in ctx && ctx.error) return { error: ctx.error, status: ctx.status };
   const okCtx = ctx as Exclude<typeof ctx, { error: string }>;
 
   const admin = createServerSupabaseAdmin();
+  const [{ data: openForVehicle }, { data: openForEmployee }] = await Promise.all([
+    admin
+      .from("vehicle_duty_shifts")
+      .select("id, vehicle_id, employee_id, start_km, shift_date, started_at")
+      .eq("vehicle_id", input.vehicleId)
+      .eq("status", "open")
+      .maybeSingle(),
+    admin
+      .from("vehicle_duty_shifts")
+      .select("id, vehicle_id, employee_id, start_km, shift_date, started_at")
+      .eq("employee_id", employeeId)
+      .eq("status", "open")
+      .maybeSingle(),
+  ]);
+
   let locationLabel: string | null = null;
   if (input.lat != null && input.lng != null) {
     locationLabel = await reverseGeocodeLatLng(input.lat, input.lng);
   }
-  const row = {
+
+  const kmFinal = Math.round(input.odometerKmFinal);
+  const capturedIso = capturedAt.toISOString();
+  const driverName = okCtx.employee.full_name || "Driver";
+  const plate = okCtx.vehicle.plate_number || plateFinal;
+  const adminLink = (() => {
+    const base = (process.env.NEXT_PUBLIC_ADMIN_PORTAL_URL ?? "").replace(/\/$/, "");
+    return base ? `${base}/vehicles/odometer` : "/vehicles/odometer";
+  })();
+
+  if (slot === "start") {
+    if (openForVehicle) {
+      return { error: "Duty already started for this vehicle. Submit end odometer photos to end duty first.", status: 409 };
+    }
+    if (openForEmployee) {
+      return { error: "You already have an open duty. Submit end odometer photos to end it first.", status: 409 };
+    }
+    const shiftDate = riyadhIsoDate(capturedAt);
+    const { data: shift, error: shiftErr } = await admin
+      .from("vehicle_duty_shifts")
+      .insert({
+        vehicle_id: input.vehicleId,
+        employee_id: employeeId,
+        team_id: okCtx.team_id,
+        shift_date: shiftDate,
+        started_at: capturedIso,
+        start_km: kmFinal,
+        status: "open",
+      })
+      .select("id")
+      .maybeSingle();
+    if (shiftErr || !shift?.id) {
+      return { error: shiftErr?.message || "Failed to start duty", status: 400 };
+    }
+
+    const inserted = await insertReading(admin, {
+      vehicle_id: input.vehicleId,
+      employee_id: employeeId,
+      team_id: okCtx.team_id,
+      slot: "start",
+      reading_date: shiftDate,
+      captured_at: capturedIso,
+      lat: input.lat,
+      lng: input.lng,
+      accuracy_m: input.accuracyM,
+      location_label: locationLabel,
+      plate_photo_url: input.platePhotoUrl,
+      odometer_photo_urls: odoUrls,
+      ocr_plate_raw: input.ocrPlateRaw,
+      ocr_odometer_raw: input.ocrOdometerRaw,
+      plate_number_final: plateFinal,
+      odometer_km_final: kmFinal,
+      ocr_status: input.ocrStatus,
+      ocr_units_used: Math.max(0, Math.round(input.ocrUnitsUsed) || 0),
+      duty_shift_id: shift.id as string,
+    });
+    if ("error" in inserted) {
+      await admin.from("vehicle_duty_shifts").delete().eq("id", shift.id);
+      return inserted;
+    }
+
+    await admin
+      .from("vehicle_duty_shifts")
+      .update({ start_reading_id: inserted.id, updated_at: new Date().toISOString() })
+      .eq("id", shift.id);
+
+    if (kmFinal >= (okCtx.vehicle.mileage ?? 0)) {
+      await admin.from("vehicles").update({ mileage: kmFinal }).eq("id", input.vehicleId);
+    }
+
+    try {
+      await notifyVehicleDutyAdmins(admin, {
+        title: "Duty started",
+        body: `${driverName} started duty · ${plate} · ${kmFinal.toLocaleString()} km`,
+        link: adminLink,
+        meta: { shiftId: shift.id, vehicleId: input.vehicleId, employeeId, slot: "start" },
+      });
+    } catch (e) {
+      console.error("[odometer-duty-notify]", e);
+    }
+
+    await syncSheetsSafe(admin, input.vehicleId, shiftDate);
+    return { status: 200, data: { id: inserted.id, dutyStatus: "open", shiftId: shift.id as string } };
+  }
+
+  const open: OpenShiftRow | null =
+    openForVehicle && openForVehicle.employee_id === employeeId
+      ? (openForVehicle as OpenShiftRow)
+      : openForEmployee && openForEmployee.vehicle_id === input.vehicleId
+        ? (openForEmployee as OpenShiftRow)
+        : null;
+  if (!open) {
+    return { error: "Start duty first by submitting start odometer photos.", status: 409 };
+  }
+  if (kmFinal < Number(open.start_km)) {
+    return { error: `End km cannot be less than start km (${open.start_km}).`, status: 400 };
+  }
+
+  const inserted = await insertReading(admin, {
     vehicle_id: input.vehicleId,
     employee_id: employeeId,
     team_id: okCtx.team_id,
-    slot: input.slot,
-    reading_date: input.readingDate,
-    captured_at: capturedAt.toISOString(),
+    slot: "end",
+    reading_date: String(open.shift_date),
+    captured_at: capturedIso,
     lat: input.lat,
     lng: input.lng,
     accuracy_m: input.accuracyM,
@@ -252,33 +377,63 @@ export async function confirmOdometerReading(
     ocr_plate_raw: input.ocrPlateRaw,
     ocr_odometer_raw: input.ocrOdometerRaw,
     plate_number_final: plateFinal,
-    odometer_km_final: Math.round(input.odometerKmFinal),
+    odometer_km_final: kmFinal,
     ocr_status: input.ocrStatus,
     ocr_units_used: Math.max(0, Math.round(input.ocrUnitsUsed) || 0),
-  };
+    duty_shift_id: open.id,
+  });
+  if ("error" in inserted) return inserted;
 
-  const { data: inserted, error: insErr } = await admin
-    .from("vehicle_odometer_readings")
-    .upsert(row, { onConflict: "vehicle_id,reading_date,slot" })
-    .select("id")
-    .maybeSingle();
+  await admin
+    .from("vehicle_duty_shifts")
+    .update({
+      status: "closed",
+      ended_at: capturedIso,
+      end_km: kmFinal,
+      end_reading_id: inserted.id,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", open.id)
+    .eq("status", "open");
 
-  if (insErr) return { error: insErr.message, status: 400 };
-  if (!inserted?.id) return { error: "Failed to save reading", status: 500 };
-
-  if (row.odometer_km_final >= (okCtx.vehicle.mileage ?? 0)) {
-    await admin.from("vehicles").update({ mileage: row.odometer_km_final }).eq("id", input.vehicleId);
+  if (kmFinal >= (okCtx.vehicle.mileage ?? 0)) {
+    await admin.from("vehicles").update({ mileage: kmFinal }).eq("id", input.vehicleId);
   }
 
+  const tripKm = kmFinal - Number(open.start_km);
   try {
-    await syncOdometerSheetsAfterSave(admin, {
-      vehicleId: input.vehicleId,
-      readingDate: input.readingDate,
+    await notifyVehicleDutyAdmins(admin, {
+      title: "Duty ended",
+      body: `${driverName} ended duty · ${plate} · ${tripKm.toLocaleString()} km this shift`,
+      link: adminLink,
+      meta: { shiftId: open.id, vehicleId: input.vehicleId, employeeId, slot: "end", tripKm },
     });
   } catch (e) {
-    console.error("[odometer-sheets]", e);
-    // Reading is saved; sheet failure should not block driver
+    console.error("[odometer-duty-notify]", e);
   }
 
-  return { status: 200, data: { id: inserted.id as string } };
+  await syncSheetsSafe(admin, input.vehicleId, String(open.shift_date));
+  return { status: 200, data: { id: inserted.id, dutyStatus: "closed", shiftId: open.id } };
+}
+
+async function insertReading(
+  admin: SupabaseClient,
+  row: Record<string, unknown>
+): Promise<{ id: string } | { error: string; status: number }> {
+  const { data: inserted, error: insErr } = await admin
+    .from("vehicle_odometer_readings")
+    .insert(row)
+    .select("id")
+    .maybeSingle();
+  if (insErr) return { error: insErr.message, status: 400 };
+  if (!inserted?.id) return { error: "Failed to save reading", status: 500 };
+  return { id: inserted.id as string };
+}
+
+async function syncSheetsSafe(admin: SupabaseClient, vehicleId: string, readingDate: string) {
+  try {
+    await syncOdometerSheetsAfterSave(admin, { vehicleId, readingDate });
+  } catch (e) {
+    console.error("[odometer-sheets]", e);
+  }
 }

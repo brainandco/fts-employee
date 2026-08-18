@@ -41,5 +41,5 @@ export async function POST(req: Request) {
   });
 
   if (result.error) return NextResponse.json({ message: result.error }, { status: result.status });
-  return NextResponse.json({ ok: true, id: result.data?.id });
+  return NextResponse.json({ ok: true, id: result.data?.id, dutyStatus: result.data?.dutyStatus, shiftId: result.data?.shiftId });
 }

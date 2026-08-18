@@ -145,27 +145,31 @@ export async function GET(req: Request) {
     eveningPending: boolean;
     morningSubmitted: boolean;
     eveningSubmitted: boolean;
+    dutyStatus: "open" | "idle";
+    startedAt: string | null;
     plate: string | null;
   } | null = null;
   if (isDriverRigger) {
     const vehicleId = (assignmentsRes.data ?? [])[0]?.vehicle_id as string | undefined;
     if (vehicleId) {
-      const today = new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Riyadh" });
-      const [{ data: todaySlots }, { data: veh }] = await Promise.all([
+      const [{ data: openShift }, { data: veh }] = await Promise.all([
         supabase
-          .from("vehicle_odometer_readings")
-          .select("slot")
+          .from("vehicle_duty_shifts")
+          .select("started_at, start_km")
           .eq("vehicle_id", vehicleId)
-          .eq("reading_date", today),
+          .eq("employee_id", employeeId)
+          .eq("status", "open")
+          .maybeSingle(),
         supabase.from("vehicles").select("plate_number").eq("id", vehicleId).maybeSingle(),
       ]);
-      const morningSubmitted = (todaySlots ?? []).some((s) => s.slot === "morning");
-      const eveningSubmitted = (todaySlots ?? []).some((s) => s.slot === "evening");
+      const dutyOpen = Boolean(openShift);
       odometerToday = {
-        morningSubmitted,
-        eveningSubmitted,
-        morningPending: !morningSubmitted,
-        eveningPending: !eveningSubmitted,
+        dutyStatus: dutyOpen ? "open" : "idle",
+        startedAt: openShift ? String(openShift.started_at) : null,
+        morningSubmitted: dutyOpen,
+        eveningSubmitted: false,
+        morningPending: !dutyOpen,
+        eveningPending: dutyOpen,
         plate: (veh?.plate_number as string | null) ?? null,
       };
     }

@@ -7,7 +7,7 @@ import {
   type OdometerSlot,
 } from "@/lib/odometer/odometer-service";
 
-/** POST — persist confirmed morning/evening odometer reading + Sheets row. */
+/** POST — persist start/end duty odometer reading + Sheets row. */
 export async function POST(req: Request) {
   const auth = await getRequestAuth(req);
   if (!auth) return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
@@ -51,5 +51,5 @@ export async function POST(req: Request) {
   });
 
   if (result.error) return NextResponse.json({ message: result.error }, { status: result.status });
-  return NextResponse.json({ ok: true, id: result.data?.id });
+  return NextResponse.json({ ok: true, id: result.data?.id, dutyStatus: result.data?.dutyStatus, shiftId: result.data?.shiftId });
 }

@@ -1,4 +1,4 @@
-export type OdometerSlot = "morning" | "evening";
+export type OdometerSlot = "start" | "end" | "morning" | "evening";
 
 export type OdometerReadingRow = {
   vehicle_id: string;
@@ -16,6 +16,7 @@ export type OdometerReadingRow = {
   plate_photo_url: string;
   odometer_photo_urls: unknown;
   ocr_status: string;
+  duty_shift_id?: string | null;
 };
 
 export type DailyOdoPerson = {
@@ -50,15 +51,14 @@ export type DailyOdoSummary = {
   eveningMapsUrl: string;
   eveningPlatePhoto: string;
   eveningOdoPhotos: string;
-  /** evening − morning (same calendar day). Null until both slots exist. */
+  /** end − start for this duty. Null until both exist. */
   todayKm: number | null;
-  /** End-of-day total: evening, else morning. */
+  /** End-of-duty total: end, else start. */
   dayTotalKm: number | null;
   previousDate: string | null;
   previousTotalKm: number | null;
-  /** this day total − previous logged day total. */
   vsPreviousKm: number | null;
-  status: "Complete" | "Morning only" | "Evening only";
+  status: "Complete" | "On duty" | "Start only" | "End only";
 };
 
 function mapsUrl(lat: number | null, lng: number | null): string {
@@ -79,12 +79,21 @@ export function photoList(value: unknown): string {
   return "";
 }
 
-function pickSlot(rows: OdometerReadingRow[], slot: OdometerSlot): OdometerReadingRow | undefined {
-  return rows.find((r) => r.slot === slot);
+function dutySide(slot: string): "start" | "end" {
+  return slot === "end" || slot === "evening" ? "end" : "start";
+}
+
+function pickSide(rows: OdometerReadingRow[], side: "start" | "end"): OdometerReadingRow | undefined {
+  return rows.find((r) => dutySide(r.slot) === side);
+}
+
+function groupKey(row: OdometerReadingRow): string {
+  if (row.duty_shift_id) return `s:${row.duty_shift_id}`;
+  return `d:${row.vehicle_id}|${row.reading_date}`;
 }
 
 /**
- * One row per vehicle per date: same-day km + vs previous logged day.
+ * One row per duty: start + end odometer (night shifts stay on the start date).
  */
 export function buildDailySummaries(
   readings: OdometerReadingRow[],
@@ -93,47 +102,62 @@ export function buildDailySummaries(
 ): DailyOdoSummary[] {
   const groups = new Map<string, OdometerReadingRow[]>();
   for (const row of readings) {
-    const key = `${row.vehicle_id}|${row.reading_date}`;
+    const key = groupKey(row);
     const list = groups.get(key) ?? [];
     list.push(row);
     groups.set(key, list);
   }
 
   const byVehicle = new Map<string, string[]>();
-  for (const key of groups.keys()) {
-    const [vehicleId, date] = key.split("|");
-    const dates = byVehicle.get(vehicleId) ?? [];
-    dates.push(date);
-    byVehicle.set(vehicleId, dates);
+  const dateByGroup = new Map<string, string>();
+  for (const [key, rows] of groups) {
+    const start = pickSide(rows, "start");
+    const end = pickSide(rows, "end");
+    const primary = start ?? end;
+    if (!primary) continue;
+    const date = start?.reading_date ?? primary.reading_date;
+    dateByGroup.set(key, date);
+    const dates = byVehicle.get(primary.vehicle_id) ?? [];
+    dates.push(`${date}|${key}`);
+    byVehicle.set(primary.vehicle_id, dates);
   }
   for (const dates of byVehicle.values()) dates.sort();
 
   const summaries: DailyOdoSummary[] = [];
   for (const [key, rows] of groups) {
-    const [vehicleId, date] = key.split("|");
-    const morning = pickSlot(rows, "morning");
-    const evening = pickSlot(rows, "evening");
-    const primary = evening ?? morning;
+    const start = pickSide(rows, "start");
+    const end = pickSide(rows, "end");
+    const primary = start ?? end;
     if (!primary) continue;
+    const vehicleId = primary.vehicle_id;
+    const date = dateByGroup.get(key) ?? primary.reading_date;
 
-    const dates = byVehicle.get(vehicleId) ?? [];
-    const idx = dates.indexOf(date);
-    const previousDate = idx > 0 ? dates[idx - 1]! : null;
-    const prevRows = previousDate ? groups.get(`${vehicleId}|${previousDate}`) ?? [] : [];
-    const prevEvening = pickSlot(prevRows, "evening");
-    const prevMorning = pickSlot(prevRows, "morning");
-    const previousTotalKm = prevEvening?.odometer_km_final ?? prevMorning?.odometer_km_final ?? null;
+    const stamped = byVehicle.get(vehicleId) ?? [];
+    const idx = stamped.findIndex((x) => x.endsWith(`|${key}`));
+    const previousToken = idx > 0 ? stamped[idx - 1]! : null;
+    const previousKey = previousToken ? previousToken.slice(previousToken.indexOf("|") + 1) : null;
+    const previousDate = previousToken ? previousToken.slice(0, previousToken.indexOf("|")) : null;
+    const prevRows = previousKey ? groups.get(previousKey) ?? [] : [];
+    const prevEnd = pickSide(prevRows, "end");
+    const prevStart = pickSide(prevRows, "start");
+    const previousTotalKm = prevEnd?.odometer_km_final ?? prevStart?.odometer_km_final ?? null;
 
-    const morningKm = morning?.odometer_km_final ?? null;
-    const eveningKm = evening?.odometer_km_final ?? null;
+    const morningKm = start?.odometer_km_final ?? null;
+    const eveningKm = end?.odometer_km_final ?? null;
     const todayKm = morningKm != null && eveningKm != null ? eveningKm - morningKm : null;
     const dayTotalKm = eveningKm ?? morningKm;
     const vsPreviousKm = dayTotalKm != null && previousTotalKm != null ? dayTotalKm - previousTotalKm : null;
 
     const person = people.get(primary.employee_id);
     const vehicle = vehicles.get(vehicleId);
-    const status: DailyOdoSummary["status"] =
-      morning && evening ? "Complete" : morning ? "Morning only" : "Evening only";
+    let status: DailyOdoSummary["status"];
+    if (start && end) status = "Complete";
+    else if (end && !start) status = "End only";
+    else {
+      const started = start ? new Date(start.captured_at).getTime() : 0;
+      const recent = started > 0 && Date.now() - started < 36 * 60 * 60 * 1000;
+      status = recent ? "On duty" : "Start only";
+    }
 
     summaries.push({
       vehicle_id: vehicleId,
@@ -145,17 +169,17 @@ export function buildDailySummaries(
       team: person?.team_name || "",
       vehicleLabel: [vehicle?.make, vehicle?.model].filter(Boolean).join(" "),
       morningKm,
-      morningAt: morning?.captured_at ?? null,
-      morningGps: gps(morning?.lat ?? null, morning?.lng ?? null, morning?.location_label),
-      morningMapsUrl: mapsUrl(morning?.lat ?? null, morning?.lng ?? null),
-      morningPlatePhoto: morning?.plate_photo_url ?? "",
-      morningOdoPhotos: photoList(morning?.odometer_photo_urls),
+      morningAt: start?.captured_at ?? null,
+      morningGps: gps(start?.lat ?? null, start?.lng ?? null, start?.location_label),
+      morningMapsUrl: mapsUrl(start?.lat ?? null, start?.lng ?? null),
+      morningPlatePhoto: start?.plate_photo_url ?? "",
+      morningOdoPhotos: photoList(start?.odometer_photo_urls),
       eveningKm,
-      eveningAt: evening?.captured_at ?? null,
-      eveningGps: gps(evening?.lat ?? null, evening?.lng ?? null, evening?.location_label),
-      eveningMapsUrl: mapsUrl(evening?.lat ?? null, evening?.lng ?? null),
-      eveningPlatePhoto: evening?.plate_photo_url ?? "",
-      eveningOdoPhotos: photoList(evening?.odometer_photo_urls),
+      eveningAt: end?.captured_at ?? null,
+      eveningGps: gps(end?.lat ?? null, end?.lng ?? null, end?.location_label),
+      eveningMapsUrl: mapsUrl(end?.lat ?? null, end?.lng ?? null),
+      eveningPlatePhoto: end?.plate_photo_url ?? "",
+      eveningOdoPhotos: photoList(end?.odometer_photo_urls),
       todayKm,
       dayTotalKm,
       previousDate,
@@ -175,4 +199,14 @@ export function buildDailySummaries(
 export function dashKm(n: number | null | undefined): string {
   if (n == null || !Number.isFinite(n)) return "";
   return String(n);
+}
+
+export function isTodayTabSummary(row: DailyOdoSummary, todayIso: string): boolean {
+  if (row.reading_date === todayIso) return true;
+  if (row.status === "On duty") return true;
+  if (row.eveningAt) {
+    const endDate = new Date(row.eveningAt).toLocaleDateString("en-CA", { timeZone: "Asia/Riyadh" });
+    if (endDate === todayIso) return true;
+  }
+  return false;
 }

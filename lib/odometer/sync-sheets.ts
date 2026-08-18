@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { syncOdometerDailySheets } from "@/lib/google/sheets-append";
 import {
   buildDailySummaries,
+  isTodayTabSummary,
   type DailyOdoPerson,
   type DailyOdoVehicle,
   type OdometerReadingRow,
@@ -19,7 +20,7 @@ function asReading(row: Record<string, unknown>): OdometerReadingRow {
     employee_id: String(row.employee_id),
     team_id: (row.team_id as string | null) ?? null,
     reading_date: String(row.reading_date),
-    slot: row.slot === "evening" ? "evening" : "morning",
+    slot: row.slot === "end" || row.slot === "evening" ? "end" : "start",
     captured_at: String(row.captured_at),
     lat: typeof row.lat === "number" ? row.lat : row.lat != null ? Number(row.lat) : null,
     lng: typeof row.lng === "number" ? row.lng : row.lng != null ? Number(row.lng) : null,
@@ -29,6 +30,7 @@ function asReading(row: Record<string, unknown>): OdometerReadingRow {
     odometer_photo_urls: row.odometer_photo_urls,
     ocr_status: String(row.ocr_status ?? ""),
     location_label: typeof row.location_label === "string" ? row.location_label : null,
+    duty_shift_id: typeof row.duty_shift_id === "string" ? row.duty_shift_id : null,
   };
 }
 
@@ -36,14 +38,15 @@ export async function syncOdometerSheetsAfterSave(
   admin: SupabaseClient,
   input: { vehicleId: string; readingDate: string }
 ): Promise<void> {
-  const fromDate = addDays(input.readingDate, -14);
+  const todayIso = new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Riyadh" });
+  const fromDate = addDays(todayIso, -14);
   const { data: rawRows, error } = await admin
     .from("vehicle_odometer_readings")
     .select(
-      "vehicle_id, employee_id, team_id, reading_date, slot, captured_at, lat, lng, location_label, plate_number_final, odometer_km_final, plate_photo_url, odometer_photo_urls, ocr_status"
+      "vehicle_id, employee_id, team_id, reading_date, slot, captured_at, lat, lng, location_label, plate_number_final, odometer_km_final, plate_photo_url, odometer_photo_urls, ocr_status, duty_shift_id"
     )
     .gte("reading_date", fromDate)
-    .lte("reading_date", input.readingDate);
+    .lte("reading_date", todayIso);
 
   if (error) throw new Error(error.message);
   const readings = (rawRows ?? []).map((r) => asReading(r as Record<string, unknown>));
@@ -97,8 +100,8 @@ export async function syncOdometerSheetsAfterSave(
   if (!historySummary) return;
 
   await syncOdometerDailySheets({
-    readingDate: input.readingDate,
-    todaySummaries: summaries.filter((s) => s.reading_date === input.readingDate),
+    readingDate: todayIso,
+    todaySummaries: summaries.filter((s) => isTodayTabSummary(s, todayIso)),
     historySummary,
   });
 }

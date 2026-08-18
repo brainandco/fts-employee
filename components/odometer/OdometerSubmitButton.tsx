@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { joinPlateParts, splitPlateParts, todayLocalIsoDate } from "@/lib/odometer/plate-parts";
 
-type Slot = "morning" | "evening";
+type Slot = "start" | "end";
 
 type AnalyzeResponse = {
   ocrStatus: "ok" | "failed" | "skipped_quota";
@@ -30,15 +30,17 @@ async function uploadOdometerPhoto(vehicleId: string, file: File): Promise<strin
 export function OdometerSubmitButton({
   vehicleId,
   plateLabel,
-  todayStatus,
+  dutyOpen = false,
+  dutyStartedAt = null,
 }: {
   vehicleId: string;
   plateLabel: string;
-  todayStatus?: { morning: boolean; evening: boolean };
+  dutyOpen?: boolean;
+  dutyStartedAt?: string | null;
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
-  const [slot, setSlot] = useState<Slot>("morning");
+  const slot: Slot = dutyOpen ? "end" : "start";
   const [plateUrl, setPlateUrl] = useState<string | null>(null);
   const [odoUrls, setOdoUrls] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
@@ -193,6 +195,10 @@ export function OdometerSubmitButton({
       setError("Enter a valid odometer km reading");
       return;
     }
+    if (lat == null || lng == null) {
+      setError("GPS required — allow location and tap Refresh GPS");
+      return;
+    }
     setBusy(true);
     setError("");
     try {
@@ -219,7 +225,7 @@ export function OdometerSubmitButton({
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(typeof data.message === "string" ? data.message : "Submit failed");
-      setMessage("Odometer reading saved.");
+      setMessage(slot === "start" ? "Duty started." : "Duty ended.");
       reset();
       setOpen(false);
       router.refresh();
@@ -232,50 +238,49 @@ export function OdometerSubmitButton({
 
   if (!open) {
     return (
-      <button
-        type="button"
-        onClick={() => {
-          reset();
-          setOpen(true);
-          readGps();
-        }}
-        className="rounded-lg border border-sky-300 bg-sky-50 px-3 py-1.5 text-xs font-medium text-sky-900 hover:bg-sky-100"
-      >
-        Submit odometer
-      </button>
+      <div className="flex flex-wrap items-center gap-2">
+        {dutyOpen ? (
+          <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-800">
+            On duty{dutyStartedAt ? ` since ${new Date(dutyStartedAt).toLocaleString()}` : ""}
+          </span>
+        ) : (
+          <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-900">Duty not started</span>
+        )}
+        <button
+          type="button"
+          onClick={() => {
+            reset();
+            setOpen(true);
+            readGps();
+          }}
+          className={`rounded-lg px-3 py-1.5 text-xs font-medium ${
+            dutyOpen
+              ? "border border-rose-300 bg-rose-50 text-rose-900 hover:bg-rose-100"
+              : "border border-sky-300 bg-sky-50 text-sky-900 hover:bg-sky-100"
+          }`}
+        >
+          {dutyOpen ? "End duty" : "Start duty"}
+        </button>
+      </div>
     );
   }
 
   return (
     <div className="mt-2 w-full rounded-xl border border-sky-200 bg-white p-4 text-sm shadow-sm">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="font-semibold text-zinc-900">Odometer — {plateLabel}</p>
+        <p className="font-semibold text-zinc-900">
+          {slot === "start" ? "Start duty" : "End duty"} — {plateLabel}
+        </p>
         <button type="button" className="text-xs text-zinc-500 hover:text-zinc-800" onClick={() => setOpen(false)}>
           Close
         </button>
       </div>
       <p className="mt-1 text-xs text-zinc-600">
-        Live camera only (no gallery). Capture number plate + odometer. Extra dash screens allowed.
+        {slot === "start"
+          ? "Duty starts only after plate + odometer photos, GPS, and km are saved."
+          : "Duty ends only after plate + odometer photos, GPS, and km are saved."}{" "}
+        Live camera only (no gallery).
       </p>
-
-      <div className="mt-3 flex flex-wrap gap-2">
-        {(["morning", "evening"] as const).map((s) => {
-          const done = s === "morning" ? todayStatus?.morning : todayStatus?.evening;
-          return (
-            <button
-              key={s}
-              type="button"
-              onClick={() => setSlot(s)}
-              className={`rounded-full px-3 py-1 text-xs font-medium capitalize ${
-                slot === s ? "bg-sky-700 text-white" : "bg-zinc-100 text-zinc-700"
-              }`}
-            >
-              {s}
-              {done ? " · submitted" : " · pending"}
-            </button>
-          );
-        })}
-      </div>
 
       <div className="mt-3 grid gap-3 sm:grid-cols-2">
         <div className="rounded-lg border border-zinc-200 p-3">
@@ -348,7 +353,7 @@ export function OdometerSubmitButton({
           onClick={() => void onConfirm()}
           className="rounded-lg bg-emerald-700 px-3 py-2 text-xs font-medium text-white disabled:opacity-50"
         >
-          Confirm & save
+          Confirm & {slot === "start" ? "start duty" : "end duty"}
         </button>
       </div>
 

@@ -21,8 +21,9 @@ export async function GET(req: Request) {
   ]);
 
   const canReturnVehicle = (roles ?? []).some((r) => isVehicleAssigneeRole(r.role as string));
+  const isDriverRigger = (roles ?? []).some((r) => r.role === "Driver/Rigger");
   if (!assignment?.vehicle_id) {
-    return NextResponse.json({ items: [], canReturnVehicle, isDriverRigger: (roles ?? []).some((r) => r.role === "Driver/Rigger") });
+    return NextResponse.json({ items: [], canReturnVehicle, isDriverRigger });
   }
 
   const { data: vehicle, error } = await supabase
@@ -32,20 +33,20 @@ export async function GET(req: Request) {
     .maybeSingle();
 
   if (error) return NextResponse.json({ message: error.message }, { status: 400 });
-  if (!vehicle) return NextResponse.json({ items: [], canReturnVehicle, isDriverRigger: (roles ?? []).some((r) => r.role === "Driver/Rigger") });
+  if (!vehicle) return NextResponse.json({ items: [], canReturnVehicle, isDriverRigger });
 
-  const today = new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Riyadh" });
-  const { data: todaySlots } = await supabase
-    .from("vehicle_odometer_readings")
-    .select("slot, captured_at")
+  const { data: openShift } = await supabase
+    .from("vehicle_duty_shifts")
+    .select("id, started_at, start_km, shift_date, status")
     .eq("vehicle_id", assignment.vehicle_id)
-    .eq("reading_date", today);
-  const morning = (todaySlots ?? []).find((s) => s.slot === "morning");
-  const evening = (todaySlots ?? []).find((s) => s.slot === "evening");
+    .eq("employee_id", access.employeeId)
+    .eq("status", "open")
+    .maybeSingle();
 
+  const dutyOpen = Boolean(openShift);
   return NextResponse.json({
     canReturnVehicle,
-    isDriverRigger: (roles ?? []).some((r) => r.role === "Driver/Rigger"),
+    isDriverRigger,
     items: [
       {
         id: vehicle.id as string,
@@ -54,11 +55,16 @@ export async function GET(req: Request) {
         model: (vehicle.model as string | null) ?? null,
         status: vehicle.status as string,
         canReturn: canReturnVehicle,
+        duty: {
+          status: dutyOpen ? "open" : "idle",
+          startedAt: openShift ? String(openShift.started_at) : null,
+          startKm: typeof openShift?.start_km === "number" ? openShift.start_km : openShift?.start_km != null ? Number(openShift.start_km) : null,
+        },
         todayOdometer: {
-          morningSubmitted: Boolean(morning),
-          eveningSubmitted: Boolean(evening),
-          morningAt: morning ? String(morning.captured_at) : null,
-          eveningAt: evening ? String(evening.captured_at) : null,
+          morningSubmitted: dutyOpen,
+          eveningSubmitted: false,
+          morningAt: openShift ? String(openShift.started_at) : null,
+          eveningAt: null,
         },
       },
     ],
