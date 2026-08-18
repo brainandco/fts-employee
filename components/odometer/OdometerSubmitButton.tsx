@@ -51,6 +51,7 @@ export function OdometerSubmitButton({
   const [lat, setLat] = useState<number | null>(null);
   const [lng, setLng] = useState<number | null>(null);
   const [accuracyM, setAccuracyM] = useState<number | null>(null);
+  const [locationLabel, setLocationLabel] = useState("");
   const [capturedAt, setCapturedAt] = useState<string>(new Date().toISOString());
 
   const canAnalyze = Boolean(plateUrl && odoUrls.length > 0);
@@ -71,6 +72,7 @@ export function OdometerSubmitButton({
     setLat(null);
     setLng(null);
     setAccuracyM(null);
+    setLocationLabel("");
     setCapturedAt(new Date().toISOString());
   }
 
@@ -81,11 +83,19 @@ export function OdometerSubmitButton({
     }
     navigator.geolocation.getCurrentPosition(
       (pos) => {
-        setLat(pos.coords.latitude);
-        setLng(pos.coords.longitude);
+        const nextLat = pos.coords.latitude;
+        const nextLng = pos.coords.longitude;
+        setLat(nextLat);
+        setLng(nextLng);
         setAccuracyM(pos.coords.accuracy);
         setCapturedAt(new Date().toISOString());
         setError("");
+        void fetch(`/api/vehicles/odometer/geocode?lat=${encodeURIComponent(String(nextLat))}&lng=${encodeURIComponent(String(nextLng))}`)
+          .then((r) => r.json())
+          .then((d: { label?: string | null }) => {
+            if (typeof d.label === "string" && d.label.trim()) setLocationLabel(d.label.trim());
+          })
+          .catch(() => {});
       },
       () => {
         setError("Could not read GPS. Allow location access and try again (required for field submissions).");
@@ -312,13 +322,13 @@ export function OdometerSubmitButton({
         </div>
       </div>
 
-      <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-zinc-600">
+      <div className="mt-3 flex flex-wrap items-start gap-2 text-xs text-zinc-600">
         <button type="button" onClick={readGps} className="rounded border border-zinc-300 px-2 py-1 hover:bg-zinc-50">
           Refresh GPS
         </button>
-        <span>
+        <span className="min-w-0 flex-1 break-words">
           {lat != null && lng != null
-            ? `GPS ${lat.toFixed(5)}, ${lng.toFixed(5)}${accuracyM != null ? ` (±${Math.round(accuracyM)}m)` : ""}`
+            ? `${locationLabel ? `${locationLabel} · ` : ""}GPS ${lat.toFixed(5)}, ${lng.toFixed(5)}${accuracyM != null ? ` (±${Math.round(accuracyM)}m)` : ""}`
             : "GPS not set"}
         </span>
       </div>

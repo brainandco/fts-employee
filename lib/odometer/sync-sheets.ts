@@ -28,6 +28,7 @@ function asReading(row: Record<string, unknown>): OdometerReadingRow {
     plate_photo_url: String(row.plate_photo_url ?? ""),
     odometer_photo_urls: row.odometer_photo_urls,
     ocr_status: String(row.ocr_status ?? ""),
+    location_label: typeof row.location_label === "string" ? row.location_label : null,
   };
 }
 
@@ -39,7 +40,7 @@ export async function syncOdometerSheetsAfterSave(
   const { data: rawRows, error } = await admin
     .from("vehicle_odometer_readings")
     .select(
-      "vehicle_id, employee_id, team_id, reading_date, slot, captured_at, lat, lng, plate_number_final, odometer_km_final, plate_photo_url, odometer_photo_urls, ocr_status"
+      "vehicle_id, employee_id, team_id, reading_date, slot, captured_at, lat, lng, location_label, plate_number_final, odometer_km_final, plate_photo_url, odometer_photo_urls, ocr_status"
     )
     .gte("reading_date", fromDate)
     .lte("reading_date", input.readingDate);

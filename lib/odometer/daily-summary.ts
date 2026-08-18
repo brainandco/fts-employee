@@ -10,6 +10,7 @@ export type OdometerReadingRow = {
   lat: number | null;
   lng: number | null;
   accuracy_m?: number | null;
+  location_label?: string | null;
   plate_number_final: string;
   odometer_km_final: number;
   plate_photo_url: string;
@@ -40,11 +41,13 @@ export type DailyOdoSummary = {
   morningKm: number | null;
   morningAt: string | null;
   morningGps: string;
+  morningMapsUrl: string;
   morningPlatePhoto: string;
   morningOdoPhotos: string;
   eveningKm: number | null;
   eveningAt: string | null;
   eveningGps: string;
+  eveningMapsUrl: string;
   eveningPlatePhoto: string;
   eveningOdoPhotos: string;
   /** evening − morning (same calendar day). Null until both slots exist. */
@@ -58,9 +61,16 @@ export type DailyOdoSummary = {
   status: "Complete" | "Morning only" | "Evening only";
 };
 
-function gps(lat: number | null, lng: number | null): string {
+function mapsUrl(lat: number | null, lng: number | null): string {
   if (lat == null || lng == null) return "";
-  return `${lat}, ${lng}`;
+  return `https://www.google.com/maps?q=${encodeURIComponent(`${lat},${lng}`)}`;
+}
+
+function gps(lat: number | null, lng: number | null, label?: string | null): string {
+  if (lat == null || lng == null) return "";
+  const coords = `${lat}, ${lng}`;
+  const place = label?.trim();
+  return place ? `${place} (${coords})` : coords;
 }
 
 export function photoList(value: unknown): string {
@@ -136,12 +146,14 @@ export function buildDailySummaries(
       vehicleLabel: [vehicle?.make, vehicle?.model].filter(Boolean).join(" "),
       morningKm,
       morningAt: morning?.captured_at ?? null,
-      morningGps: gps(morning?.lat ?? null, morning?.lng ?? null),
+      morningGps: gps(morning?.lat ?? null, morning?.lng ?? null, morning?.location_label),
+      morningMapsUrl: mapsUrl(morning?.lat ?? null, morning?.lng ?? null),
       morningPlatePhoto: morning?.plate_photo_url ?? "",
       morningOdoPhotos: photoList(morning?.odometer_photo_urls),
       eveningKm,
       eveningAt: evening?.captured_at ?? null,
-      eveningGps: gps(evening?.lat ?? null, evening?.lng ?? null),
+      eveningGps: gps(evening?.lat ?? null, evening?.lng ?? null, evening?.location_label),
+      eveningMapsUrl: mapsUrl(evening?.lat ?? null, evening?.lng ?? null),
       eveningPlatePhoto: evening?.plate_photo_url ?? "",
       eveningOdoPhotos: photoList(evening?.odometer_photo_urls),
       todayKm,

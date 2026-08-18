@@ -4,6 +4,7 @@ import { parseOdometerCandidates } from "@/lib/ocr/parse-odometer";
 import { parsePlateCandidates } from "@/lib/ocr/parse-plate";
 import { getOcrUsageThisMonth } from "@/lib/ocr/quota";
 import { syncOdometerSheetsAfterSave } from "@/lib/odometer/sync-sheets";
+import { reverseGeocodeLatLng } from "@/lib/odometer/reverse-geocode";
 import { createServerSupabaseAdmin } from "@/lib/supabase/admin";
 import { isVehicleAssigneeRole, VEHICLE_ASSIGNEE_ROLES_LABEL } from "@/lib/employees/vehicle-assignment-roles";
 
@@ -231,6 +232,10 @@ export async function confirmOdometerReading(
   const okCtx = ctx as Exclude<typeof ctx, { error: string }>;
 
   const admin = createServerSupabaseAdmin();
+  let locationLabel: string | null = null;
+  if (input.lat != null && input.lng != null) {
+    locationLabel = await reverseGeocodeLatLng(input.lat, input.lng);
+  }
   const row = {
     vehicle_id: input.vehicleId,
     employee_id: employeeId,
@@ -241,6 +246,7 @@ export async function confirmOdometerReading(
     lat: input.lat,
     lng: input.lng,
     accuracy_m: input.accuracyM,
+    location_label: locationLabel,
     plate_photo_url: input.platePhotoUrl,
     odometer_photo_urls: odoUrls,
     ocr_plate_raw: input.ocrPlateRaw,
