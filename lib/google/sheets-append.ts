@@ -1,112 +1,188 @@
 import { getGoogleAccessToken, isGoogleSaConfigured } from "@/lib/google/service-account";
+import type { DailyOdoSummary } from "@/lib/odometer/daily-summary";
+import { dashKm } from "@/lib/odometer/daily-summary";
 
-export type OdometerSheetRow = {
-  date: string;
-  slot: string;
-  timestamp: string;
-  driver: string;
-  employeeId: string;
-  region: string;
-  team: string;
-  plate: string;
-  vehicle: string;
-  odometerKm: number;
-  lat: string;
-  lng: string;
-  platePhotoUrl: string;
-  odometerPhotoUrls: string;
-  ocrStatus: string;
-};
-
-const HEADER = [
+export const ODOMETER_SHEET_HEADER = [
   "Date",
-  "Slot",
-  "Timestamp",
   "Driver",
   "Employee ID",
   "Region",
   "Team",
   "Plate",
   "Vehicle",
-  "Odometer KM",
-  "Lat",
-  "Lng",
-  "Plate photo URL",
-  "Odometer photo URLs",
-  "OCR status",
+  "Morning KM",
+  "Morning timestamp",
+  "Evening KM",
+  "Evening timestamp",
+  "Today KM (evening − morning)",
+  "Previous date",
+  "Previous day total KM",
+  "vs previous day KM",
+  "Day total KM",
+  "Morning GPS",
+  "Evening GPS",
+  "Morning plate photo",
+  "Morning odometer photos",
+  "Evening plate photo",
+  "Evening odometer photos",
+  "Status",
 ];
 
-export async function appendOdometerSheetRow(row: OdometerSheetRow): Promise<void> {
+function todayTab(): string {
+  return process.env.GOOGLE_SHEETS_ODOMETER_TODAY_TAB?.trim() || "Today";
+}
+
+function historyTab(): string {
+  return process.env.GOOGLE_SHEETS_ODOMETER_HISTORY_TAB?.trim() || "History";
+}
+
+function colLetter(n: number): string {
+  // 1-based: 1=A ... 23=W
+  let s = "";
+  let x = n;
+  while (x > 0) {
+    const m = (x - 1) % 26;
+    s = String.fromCharCode(65 + m) + s;
+    x = Math.floor((x - 1) / 26);
+  }
+  return s;
+}
+
+const LAST_COL = colLetter(ODOMETER_SHEET_HEADER.length);
+
+export function summaryToSheetRow(row: DailyOdoSummary): string[] {
+  return [
+    row.reading_date,
+    row.driver,
+    row.employee_id,
+    row.region,
+    row.team,
+    row.plate,
+    row.vehicleLabel,
+    dashKm(row.morningKm),
+    row.morningAt || "",
+    dashKm(row.eveningKm),
+    row.eveningAt || "",
+    dashKm(row.todayKm),
+    row.previousDate || "",
+    dashKm(row.previousTotalKm),
+    dashKm(row.vsPreviousKm),
+    dashKm(row.dayTotalKm),
+    row.morningGps,
+    row.eveningGps,
+    row.morningPlatePhoto,
+    row.morningOdoPhotos,
+    row.eveningPlatePhoto,
+    row.eveningOdoPhotos,
+    row.status,
+  ];
+}
+
+/**
+ * History tab keeps every day (upsert by date + plate).
+ * Today tab is rewritten to only the current reading date (clears previous calendar day).
+ */
+export async function syncOdometerDailySheets(input: {
+  readingDate: string;
+  todaySummaries: DailyOdoSummary[];
+  historySummary: DailyOdoSummary;
+}): Promise<void> {
   const sheetId = process.env.GOOGLE_SHEETS_ODOMETER_ID?.trim();
   if (!sheetId) {
-    console.warn("[odometer-sheets] GOOGLE_SHEETS_ODOMETER_ID not set — skipping append");
+    console.warn("[odometer-sheets] GOOGLE_SHEETS_ODOMETER_ID not set — skipping");
     return;
   }
   if (!isGoogleSaConfigured()) {
-    console.warn("[odometer-sheets] Google SA not configured — skipping append");
+    console.warn("[odometer-sheets] Google SA not configured — skipping");
     return;
   }
 
   const token = await getGoogleAccessToken(["https://www.googleapis.com/auth/spreadsheets"]);
-  const range = process.env.GOOGLE_SHEETS_ODOMETER_RANGE?.trim() || "Sheet1!A:O";
-  const values = [
-    [
-      row.date,
-      row.slot,
-      row.timestamp,
-      row.driver,
-      row.employeeId,
-      row.region,
-      row.team,
-      row.plate,
-      row.vehicle,
-      row.odometerKm,
-      row.lat,
-      row.lng,
-      row.platePhotoUrl,
-      row.odometerPhotoUrls,
-      row.ocrStatus,
-    ],
-  ];
+  await ensureTabs(token, sheetId);
 
-  // Ensure header exists on first write (best-effort)
-  await ensureHeader(token, sheetId, range);
-
-  const res = await fetch(
-    `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(sheetId)}/values/${encodeURIComponent(range)}:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`,
-    {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ values }),
-    }
-  );
-  if (!res.ok) {
-    const err = await res.text().catch(() => "");
-    throw new Error(`Google Sheets append failed (${res.status}): ${err.slice(0, 300)}`);
-  }
+  await rewriteTab(token, sheetId, todayTab(), input.todaySummaries.filter((s) => s.reading_date === input.readingDate));
+  await upsertHistoryRow(token, sheetId, input.historySummary);
 }
 
-async function ensureHeader(token: string, sheetId: string, range: string): Promise<void> {
-  const getRes = await fetch(
-    `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(sheetId)}/values/${encodeURIComponent(range.split("!")[0] + "!A1:O1")}`,
-    { headers: { Authorization: `Bearer ${token}` } }
-  );
-  if (!getRes.ok) return;
-  const data = (await getRes.json().catch(() => ({}))) as { values?: string[][] };
-  if (data.values?.[0]?.[0]) return;
+async function sheetsFetch(token: string, url: string, init?: RequestInit) {
+  const res = await fetch(url, {
+    ...init,
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+      ...(init?.headers ?? {}),
+    },
+  });
+  if (!res.ok) {
+    const err = await res.text().catch(() => "");
+    throw new Error(`Google Sheets ${res.status}: ${err.slice(0, 400)}`);
+  }
+  return res.json().catch(() => ({}));
+}
 
-  await fetch(
-    `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(sheetId)}/values/${encodeURIComponent(range.split("!")[0] + "!A1")}:append?valueInputOption=USER_ENTERED`,
-    {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ values: [HEADER] }),
-    }
+async function ensureTabs(token: string, sheetId: string): Promise<void> {
+  const data = (await sheetsFetch(
+    token,
+    `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(sheetId)}?fields=sheets.properties.title`
+  )) as { sheets?: Array<{ properties?: { title?: string } }> };
+  const titles = new Set((data.sheets ?? []).map((s) => s.properties?.title).filter(Boolean) as string[]);
+  const missing = [todayTab(), historyTab()].filter((t) => !titles.has(t));
+  if (missing.length === 0) return;
+  await sheetsFetch(token, `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(sheetId)}:batchUpdate`, {
+    method: "POST",
+    body: JSON.stringify({
+      requests: missing.map((title) => ({ addSheet: { properties: { title } } })),
+    }),
+  });
+}
+
+async function rewriteTab(token: string, sheetId: string, tab: string, rows: DailyOdoSummary[]): Promise<void> {
+  const range = `${tab}!A:${LAST_COL}`;
+  await sheetsFetch(
+    token,
+    `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(sheetId)}/values/${encodeURIComponent(range)}:clear`,
+    { method: "POST", body: "{}" }
+  );
+  const values = [ODOMETER_SHEET_HEADER, ...rows.map(summaryToSheetRow)];
+  await sheetsFetch(
+    token,
+    `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(sheetId)}/values/${encodeURIComponent(`${tab}!A1`)}?valueInputOption=USER_ENTERED`,
+    { method: "PUT", body: JSON.stringify({ values }) }
+  );
+}
+
+async function upsertHistoryRow(token: string, sheetId: string, row: DailyOdoSummary): Promise<void> {
+  const tab = historyTab();
+  const getRange = `${tab}!A:${LAST_COL}`;
+  const data = (await sheetsFetch(
+    token,
+    `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(sheetId)}/values/${encodeURIComponent(getRange)}`
+  )) as { values?: string[][] };
+  const values = data.values ?? [];
+  if (values.length === 0 || !values[0]?.[0]) {
+    await sheetsFetch(
+      token,
+      `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(sheetId)}/values/${encodeURIComponent(`${tab}!A1`)}?valueInputOption=USER_ENTERED`,
+      { method: "PUT", body: JSON.stringify({ values: [ODOMETER_SHEET_HEADER, summaryToSheetRow(row)] }) }
+    );
+    return;
+  }
+
+  const sheetRowIndex = values.findIndex((r, i) => i > 0 && r[0] === row.reading_date && r[5] === row.plate);
+  const line = summaryToSheetRow(row);
+  if (sheetRowIndex >= 1) {
+    const a1 = `${tab}!A${sheetRowIndex + 1}`;
+    await sheetsFetch(
+      token,
+      `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(sheetId)}/values/${encodeURIComponent(a1)}?valueInputOption=USER_ENTERED`,
+      { method: "PUT", body: JSON.stringify({ values: [line] }) }
+    );
+    return;
+  }
+
+  await sheetsFetch(
+    token,
+    `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(sheetId)}/values/${encodeURIComponent(`${tab}!A:${LAST_COL}`)}:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`,
+    { method: "POST", body: JSON.stringify({ values: [line] }) }
   );
 }

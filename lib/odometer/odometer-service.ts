@@ -3,7 +3,7 @@ import { detectTextFromImageUrl, detectTextFromImageUrls } from "@/lib/ocr/googl
 import { parseOdometerCandidates } from "@/lib/ocr/parse-odometer";
 import { parsePlateCandidates } from "@/lib/ocr/parse-plate";
 import { getOcrUsageThisMonth } from "@/lib/ocr/quota";
-import { appendOdometerSheetRow } from "@/lib/google/sheets-append";
+import { syncOdometerSheetsAfterSave } from "@/lib/odometer/sync-sheets";
 import { createServerSupabaseAdmin } from "@/lib/supabase/admin";
 import { isVehicleAssigneeRole, VEHICLE_ASSIGNEE_ROLES_LABEL } from "@/lib/employees/vehicle-assignment-roles";
 
@@ -144,8 +144,8 @@ export async function analyzeOdometerPhotos(
 
   const ctx = await loadAssigneeContext(supabase, employeeId, input.vehicleId);
   if ("error" in ctx && ctx.error) return { error: ctx.error, status: ctx.status };
+  const okCtx = ctx as Exclude<typeof ctx, { error: string }>;
 
-  const quota = await getOcrUsageThisMonth();
   let ocrStatus: AnalyzeOdometerResult["ocrStatus"] = "ok";
   let unitsUsed = 0;
   let plateRaw = "";
@@ -174,12 +174,9 @@ export async function analyzeOdometerPhotos(
     console.error("[odometer-ocr]", e);
   }
 
-  const plateParsed = parsePlateCandidates(plateRaw);
-  const odoParsed = parseOdometerCandidates(odoRaw);
-  const suggestedPlate =
-    plateParsed.best ||
-    (ctx as Exclude<typeof ctx, { error: string }>).vehicle.plate_number ||
-    null;
+  const plateParsed = parsePlateCandidates(plateRaw, okCtx.vehicle.plate_number);
+  const odoParsed = parseOdometerCandidates(odoRaw, okCtx.vehicle.mileage);
+  const suggestedPlate = plateParsed.best || okCtx.vehicle.plate_number || null;
 
   const qAfter = await getOcrUsageThisMonth();
 
@@ -268,22 +265,9 @@ export async function confirmOdometerReading(
   }
 
   try {
-    await appendOdometerSheetRow({
-      date: input.readingDate,
-      slot: input.slot,
-      timestamp: capturedAt.toISOString(),
-      driver: okCtx.employee.full_name || "",
-      employeeId: employeeId,
-      region: okCtx.employee.region_name || "",
-      team: okCtx.team_name || "",
-      plate: plateFinal,
-      vehicle: [okCtx.vehicle.make, okCtx.vehicle.model].filter(Boolean).join(" "),
-      odometerKm: row.odometer_km_final,
-      lat: input.lat != null ? String(input.lat) : "",
-      lng: input.lng != null ? String(input.lng) : "",
-      platePhotoUrl: input.platePhotoUrl,
-      odometerPhotoUrls: odoUrls.join(" | "),
-      ocrStatus: input.ocrStatus,
+    await syncOdometerSheetsAfterSave(admin, {
+      vehicleId: input.vehicleId,
+      readingDate: input.readingDate,
     });
   } catch (e) {
     console.error("[odometer-sheets]", e);

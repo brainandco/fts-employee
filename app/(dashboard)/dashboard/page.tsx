@@ -11,6 +11,7 @@ import { EhsAssignedToolsList } from "@/components/assets/EhsAssignedToolsList";
 import { ReturnVehicleButton } from "@/components/returns/ReturnVehicleButton";
 import { OdometerSubmitButton } from "@/components/odometer/OdometerSubmitButton";
 import { ReturnSimButton } from "@/components/returns/ReturnSimButton";
+import { todayLocalIsoDate } from "@/lib/odometer/plate-parts";
 
 export default async function DashboardPage() {
   const userClient = await createServerSupabaseClient();
@@ -53,6 +54,7 @@ export default async function DashboardPage() {
   const showPpTeamLeaveLink = canAccessPpTeamLeaveRequests(myRoles ?? []);
   const isProjectCoordinator = (myRoles ?? []).some((r) => r.role === "Project Coordinator");
   const isDriverOrSelfDt = (myRoles ?? []).some((r) => r.role === "Driver/Rigger" || r.role === "Self DT");
+  const isDriverRigger = (myRoles ?? []).some((r) => r.role === "Driver/Rigger");
   const canSubmitOdometer = (myRoles ?? []).some(
     (r) => r.role === "Driver/Rigger" || r.role === "Self DT" || r.role === "QA"
   );
@@ -137,6 +139,30 @@ export default async function DashboardPage() {
   const { data: vehicles } = vehicleIds.length
     ? await supabase.from("vehicles").select("id, plate_number, make, model").in("id", vehicleIds)
     : { data: [] };
+  const todayIso = todayLocalIsoDate();
+  const { data: todayOdoRows } = vehicleIds.length
+    ? await supabase
+        .from("vehicle_odometer_readings")
+        .select("vehicle_id, slot, captured_at, employee_id")
+        .in("vehicle_id", vehicleIds)
+        .eq("reading_date", todayIso)
+    : { data: [] };
+  const odoByVehicle = new Map<string, { morning: boolean; evening: boolean }>();
+  for (const id of vehicleIds) odoByVehicle.set(id, { morning: false, evening: false });
+  for (const row of todayOdoRows ?? []) {
+    const cur = odoByVehicle.get(row.vehicle_id as string) ?? { morning: false, evening: false };
+    if (row.slot === "morning") cur.morning = true;
+    if (row.slot === "evening") cur.evening = true;
+    odoByVehicle.set(row.vehicle_id as string, cur);
+  }
+  const driverOdoPending = isDriverRigger
+    ? (vehicles ?? []).map((v) => {
+        const st = odoByVehicle.get(v.id) ?? { morning: false, evening: false };
+        return { plate: v.plate_number, ...st };
+      })
+    : [];
+  const anyMorningPending = driverOdoPending.some((v) => !v.morning);
+  const anyEveningPending = driverOdoPending.some((v) => !v.evening);
   const leaveRequests = approvals.filter((a) => a.approval_type === "leave_request");
   const openTasks = tasks.filter((t) => t.status !== "Completed" && t.status !== "Closed");
   const pendingReceiptCount = pendingReceiptsRes.count ?? 0;
@@ -200,6 +226,42 @@ export default async function DashboardPage() {
               Confirm receipt →
             </Link>
           </div>
+        </section>
+      ) : null}
+
+      {isDriverRigger && (vehicles?.length ?? 0) > 0 ? (
+        <section
+          className={`rounded-2xl border p-4 sm:p-5 ${
+            anyMorningPending || anyEveningPending
+              ? "border-amber-300 bg-amber-50/90"
+              : "border-emerald-200 bg-emerald-50/80"
+          }`}
+        >
+          <p className="text-sm font-semibold text-zinc-900">Today’s odometer — Driver/Rigger</p>
+          <p className="mt-1 text-sm text-zinc-700">
+            Morning and evening plate + odometer photos are required. Pending means you have not submitted that slot yet.
+          </p>
+          <ul className="mt-3 space-y-2 text-sm">
+            {driverOdoPending.map((v) => (
+              <li key={v.plate} className="flex flex-wrap gap-2">
+                <span className="font-medium">{v.plate}</span>
+                <span
+                  className={`rounded-full px-2 py-0.5 text-xs font-medium ${
+                    v.morning ? "bg-emerald-100 text-emerald-800" : "bg-amber-200 text-amber-950"
+                  }`}
+                >
+                  Morning: {v.morning ? "Submitted" : "Pending — not submitted"}
+                </span>
+                <span
+                  className={`rounded-full px-2 py-0.5 text-xs font-medium ${
+                    v.evening ? "bg-emerald-100 text-emerald-800" : "bg-amber-200 text-amber-950"
+                  }`}
+                >
+                  Evening: {v.evening ? "Submitted" : "Pending — not submitted"}
+                </span>
+              </li>
+            ))}
+          </ul>
         </section>
       ) : null}
 
@@ -447,6 +509,7 @@ export default async function DashboardPage() {
                     <OdometerSubmitButton
                       vehicleId={v.id}
                       plateLabel={[v.plate_number, v.make, v.model].filter(Boolean).join(" · ")}
+                      todayStatus={odoByVehicle.get(v.id)}
                     />
                   ) : null}
                 </li>

@@ -1,5 +1,6 @@
 import { getGoogleAccessToken, isGoogleSaConfigured } from "@/lib/google/service-account";
 import { releaseOcrUnits, reserveOcrUnits } from "@/lib/ocr/quota";
+import { createServerSupabaseAdmin } from "@/lib/supabase/admin";
 
 export type VisionOcrResult = {
   fullText: string;
@@ -7,8 +8,49 @@ export type VisionOcrResult = {
   skippedQuota: boolean;
 };
 
+const RESOURCE_PUBLIC = "/object/public/resource-photos/";
+const RESOURCE_SIGN = "/object/sign/resource-photos/";
+
+function resourcePhotoPathFromUrl(imageUrl: string): string | null {
+  for (const marker of [RESOURCE_PUBLIC, RESOURCE_SIGN]) {
+    const i = imageUrl.indexOf(marker);
+    if (i < 0) continue;
+    const rest = imageUrl.slice(i + marker.length).split("?")[0];
+    try {
+      return decodeURIComponent(rest);
+    } catch {
+      return rest;
+    }
+  }
+  return null;
+}
+
 /**
- * Run TEXT_DETECTION on one image URL (1 unit). Respects monthly OCR hard cap.
+ * Load image bytes ourselves. Cloud Vision imageUri often OCR's an HTML error page
+ * (private bucket / blocked fetch) and that HTML contains the storage UUID.
+ */
+async function loadImageBase64(imageUrl: string): Promise<string> {
+  const path = resourcePhotoPathFromUrl(imageUrl);
+  if (path) {
+    const admin = createServerSupabaseAdmin();
+    const { data, error } = await admin.storage.from("resource-photos").download(path);
+    if (error || !data) {
+      throw new Error(error?.message || "Could not download odometer photo from storage");
+    }
+    const buf = Buffer.from(await data.arrayBuffer());
+    if (buf.length < 32) throw new Error("Downloaded photo was empty");
+    return buf.toString("base64");
+  }
+
+  const res = await fetch(imageUrl);
+  if (!res.ok) throw new Error(`Could not fetch photo (${res.status})`);
+  const buf = Buffer.from(await res.arrayBuffer());
+  if (buf.length < 32) throw new Error("Fetched photo was empty");
+  return buf.toString("base64");
+}
+
+/**
+ * Run TEXT_DETECTION on one image (1 unit). Sends bytes, not a public URL.
  */
 export async function detectTextFromImageUrl(imageUrl: string): Promise<VisionOcrResult> {
   const reserve = await reserveOcrUnits(1);
@@ -22,6 +64,7 @@ export async function detectTextFromImageUrl(imageUrl: string): Promise<VisionOc
   }
 
   try {
+    const content = await loadImageBase64(imageUrl);
     const token = await getGoogleAccessToken(["https://www.googleapis.com/auth/cloud-vision"]);
     const res = await fetch("https://vision.googleapis.com/v1/images:annotate", {
       method: "POST",
@@ -32,8 +75,9 @@ export async function detectTextFromImageUrl(imageUrl: string): Promise<VisionOc
       body: JSON.stringify({
         requests: [
           {
-            image: { source: { imageUri: imageUrl } },
+            image: { content },
             features: [{ type: "TEXT_DETECTION", maxResults: 1 }],
+            imageContext: { languageHints: ["en", "ar"] },
           },
         ],
       }),

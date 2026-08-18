@@ -139,6 +139,38 @@ export async function GET(req: Request) {
   const pendingLeaveCount = leaveRequests.filter((l) => isPendingLeaveStatus(l.status)).length;
   const recentLeaves = leaveRequests.slice(0, 5);
 
+  const isDriverRigger = roleSet.has("Driver/Rigger");
+  let odometerToday: {
+    morningPending: boolean;
+    eveningPending: boolean;
+    morningSubmitted: boolean;
+    eveningSubmitted: boolean;
+    plate: string | null;
+  } | null = null;
+  if (isDriverRigger) {
+    const vehicleId = (assignmentsRes.data ?? [])[0]?.vehicle_id as string | undefined;
+    if (vehicleId) {
+      const today = new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Riyadh" });
+      const [{ data: todaySlots }, { data: veh }] = await Promise.all([
+        supabase
+          .from("vehicle_odometer_readings")
+          .select("slot")
+          .eq("vehicle_id", vehicleId)
+          .eq("reading_date", today),
+        supabase.from("vehicles").select("plate_number").eq("id", vehicleId).maybeSingle(),
+      ]);
+      const morningSubmitted = (todaySlots ?? []).some((s) => s.slot === "morning");
+      const eveningSubmitted = (todaySlots ?? []).some((s) => s.slot === "evening");
+      odometerToday = {
+        morningSubmitted,
+        eveningSubmitted,
+        morningPending: !morningSubmitted,
+        eveningPending: !eveningSubmitted,
+        plate: (veh?.plate_number as string | null) ?? null,
+      };
+    }
+  }
+
   return NextResponse.json({
     mode: "employee" as const,
     fullName: access.fullName,
@@ -166,5 +198,7 @@ export async function GET(req: Request) {
     work,
     pendingLeaveCount,
     recentLeaves,
+    isDriverRigger,
+    odometerToday,
   });
 }
