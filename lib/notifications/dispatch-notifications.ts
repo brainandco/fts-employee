@@ -37,6 +37,16 @@ export async function dispatchNotifications(
         data: {
           category: r.category,
           ...(r.link ? { link: r.link } : {}),
+          ...(typeof (r.meta as Record<string, unknown> | undefined)?.approval_id === "string"
+            ? { approval_id: (r.meta as Record<string, string>).approval_id }
+            : {}),
+          ...(typeof (r.meta as Record<string, unknown> | undefined)?.employee_profile_update_request_id ===
+          "string"
+            ? {
+                employee_profile_update_request_id: (r.meta as Record<string, string>)
+                  .employee_profile_update_request_id,
+              }
+            : {}),
         },
       })
     )
