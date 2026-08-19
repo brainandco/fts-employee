@@ -55,7 +55,7 @@ export type ConfirmOdometerInput = {
 
 function parseUrlList(input: unknown): string[] {
   if (!Array.isArray(input)) return [];
-  return input.filter((u): u is string => typeof u === "string" && u.startsWith("http")).slice(0, 8);
+  return input.filter((u): u is string => typeof u === "string" && u.startsWith("http")).slice(0, 1);
 }
 
 export function normalizeOdometerPhotoUrls(input: unknown): string[] {
@@ -160,7 +160,7 @@ export async function analyzeOdometerPhotos(
   }
   const odoUrls = normalizeOdometerPhotoUrls(input.odometerPhotoUrls);
   if (odoUrls.length < 1) {
-    return { error: "At least one odometer photo is required", status: 400 };
+    return { error: "One odometer photo is required", status: 400 };
   }
 
   const ctx = await loadAssigneeContext(supabase, employeeId, input.vehicleId);
@@ -196,7 +196,21 @@ export async function analyzeOdometerPhotos(
   }
 
   const plateParsed = parsePlateCandidates(plateRaw, okCtx.vehicle.plate_number);
-  const odoParsed = parseOdometerCandidates(odoRaw, okCtx.vehicle.mileage);
+
+  const admin = createServerSupabaseAdmin();
+  const { data: openDuty } = await admin
+    .from("vehicle_duty_shifts")
+    .select("start_km")
+    .eq("vehicle_id", input.vehicleId)
+    .eq("employee_id", employeeId)
+    .eq("status", "open")
+    .maybeSingle();
+  const odometerAnchor =
+    openDuty?.start_km != null && Number(openDuty.start_km) > 0
+      ? Number(openDuty.start_km)
+      : okCtx.vehicle.mileage;
+
+  const odoParsed = parseOdometerCandidates(odoRaw, odometerAnchor);
   const suggestedPlate = plateParsed.best || okCtx.vehicle.plate_number || null;
 
   const qAfter = await getOcrUsageThisMonth();
@@ -242,7 +256,7 @@ export async function confirmOdometerReading(
   }
   const odoUrls = normalizeOdometerPhotoUrls(input.odometerPhotoUrls);
   if (odoUrls.length < 1) {
-    return { error: "At least one odometer photo is required", status: 400 };
+    return { error: "One odometer photo is required", status: 400 };
   }
   const plateFinal = input.plateNumberFinal.trim();
   if (!plateFinal) return { error: "plate_number_final is required", status: 400 };

@@ -42,7 +42,7 @@ export function OdometerSubmitButton({
   const [open, setOpen] = useState(false);
   const slot: Slot = dutyOpen ? "end" : "start";
   const [plateUrl, setPlateUrl] = useState<string | null>(null);
-  const [odoUrls, setOdoUrls] = useState<string[]>([]);
+  const [odoUrl, setOdoUrl] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
@@ -57,7 +57,7 @@ export function OdometerSubmitButton({
   const [capturedAt, setCapturedAt] = useState<string>(new Date().toISOString());
   const [activityNotes, setActivityNotes] = useState("");
 
-  const canAnalyze = Boolean(plateUrl && odoUrls.length > 0);
+  const canAnalyze = Boolean(plateUrl && odoUrl);
   const quotaHint = useMemo(() => {
     if (!analysis) return null;
     return `OCR this month: ${analysis.quota.unitsUsed} / ${analysis.quota.cap} (cap ≈ $13)`;
@@ -65,7 +65,7 @@ export function OdometerSubmitButton({
 
   function reset() {
     setPlateUrl(null);
-    setOdoUrls([]);
+    setOdoUrl(null);
     setAnalysis(null);
     setPlateLetters("");
     setPlateDigits("");
@@ -126,15 +126,11 @@ export function OdometerSubmitButton({
 
   async function onOdoFile(file: File | null) {
     if (!file) return;
-    if (odoUrls.length >= 8) {
-      setError("At most 8 odometer photos");
-      return;
-    }
     setBusy(true);
     setError("");
     try {
       const url = await uploadOdometerPhoto(vehicleId, file);
-      setOdoUrls((prev) => [...prev, url]);
+      setOdoUrl(url);
       setCapturedAt(new Date().toISOString());
       setAnalysis(null);
     } catch (e) {
@@ -157,7 +153,7 @@ export function OdometerSubmitButton({
         body: JSON.stringify({
           vehicle_id: vehicleId,
           plate_photo_url: plateUrl,
-          odometer_photo_urls: odoUrls,
+          odometer_photo_urls: odoUrl ? [odoUrl] : [],
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -183,8 +179,8 @@ export function OdometerSubmitButton({
   }
 
   async function onConfirm() {
-    if (!plateUrl || odoUrls.length < 1) {
-      setError("Capture plate and at least one odometer photo");
+    if (!plateUrl || !odoUrl) {
+      setError("Capture plate and odometer photo");
       return;
     }
     const km = Number(kmFinal);
@@ -221,7 +217,7 @@ export function OdometerSubmitButton({
           lng,
           accuracy_m: accuracyM,
           plate_photo_url: plateUrl,
-          odometer_photo_urls: odoUrls,
+          odometer_photo_urls: odoUrl ? [odoUrl] : [],
           plate_number_final: plateFinal.trim(),
           odometer_km_final: Math.round(km),
           ocr_plate_raw: analysis?.plate.raw ?? null,
@@ -312,13 +308,11 @@ export function OdometerSubmitButton({
           </label>
         </div>
         <div className="rounded-lg border border-zinc-200 p-3">
-          <p className="text-xs font-medium text-zinc-800">2. Odometer photo(s)</p>
-          <div className="mt-2 flex flex-wrap gap-1">
-            {odoUrls.map((u) => (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img key={u} src={u} alt="" className="h-14 w-14 rounded object-cover" />
-            ))}
-          </div>
+          <p className="text-xs font-medium text-zinc-800">2. Odometer photo</p>
+          {odoUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={odoUrl} alt="" className="mt-2 h-24 w-full rounded object-cover" />
+          ) : null}
           <label className="mt-2 inline-block text-xs">
             <input
               type="file"
@@ -331,6 +325,7 @@ export function OdometerSubmitButton({
                 e.target.value = "";
               }}
             />
+            {odoUrl ? " Retake odometer photo" : " Take odometer photo"}
           </label>
         </div>
       </div>
@@ -370,7 +365,7 @@ export function OdometerSubmitButton({
         </button>
         <button
           type="button"
-          disabled={busy || !plateUrl || odoUrls.length < 1}
+          disabled={busy || !plateUrl || !odoUrl}
           onClick={() => void onConfirm()}
           className="rounded-lg bg-emerald-700 px-3 py-2 text-xs font-medium text-white disabled:opacity-50"
         >
@@ -389,6 +384,27 @@ export function OdometerSubmitButton({
             onKm={setKmFinal}
           />
           {quotaHint ? <p className="text-xs text-zinc-500">{quotaHint}</p> : null}
+          {analysis.odometer.candidates.length > 1 ? (
+            <div className="space-y-1">
+              <p className="text-xs font-medium text-zinc-700">Odometer reading — tap if OCR picked wrong digits:</p>
+              <div className="flex flex-wrap gap-1.5">
+                {analysis.odometer.candidates.map((km) => (
+                  <button
+                    key={km}
+                    type="button"
+                    onClick={() => setKmFinal(String(km))}
+                    className={`rounded-md border px-2 py-0.5 text-xs font-mono ${
+                      kmFinal === String(km)
+                        ? "border-indigo-600 bg-indigo-100 text-indigo-900"
+                        : "border-zinc-300 bg-white text-zinc-800 hover:bg-zinc-50"
+                    }`}
+                  >
+                    {km.toLocaleString()} km
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : null}
           {analysis.plate.raw || analysis.odometer.raw ? (
             <p className="text-[11px] leading-snug text-zinc-500">
               Vision plate: {analysis.plate.raw.replace(/\s+/g, " ").slice(0, 160) || "—"}
