@@ -3,6 +3,7 @@ import type { AuditActionCategory, AuditEntityType } from "@/lib/audit/types";
 const SKIP_PATH_PREFIXES = [
   "/api/notifications/recent",
   "/api/auth/callback",
+  "/api/cron",
 ];
 
 export function shouldSkipApiAudit(pathname: string): boolean {
