@@ -11,6 +11,7 @@ import { EhsAssignedToolsList } from "@/components/assets/EhsAssignedToolsList";
 import { ReturnVehicleButton } from "@/components/returns/ReturnVehicleButton";
 import { OdometerSubmitButton } from "@/components/odometer/OdometerSubmitButton";
 import { ReturnSimButton } from "@/components/returns/ReturnSimButton";
+import { MobileAppDownloadCard } from "@/components/mobile/MobileAppDownloadCard";
 
 export default async function DashboardPage() {
   const userClient = await createServerSupabaseClient();
@@ -37,6 +38,7 @@ export default async function DashboardPage() {
             </a>
           ) : null}
         </div>
+        <MobileAppDownloadCard audience="admin" />
       </div>
     );
   }
@@ -201,6 +203,8 @@ export default async function DashboardPage() {
 
   return (
     <div className="space-y-6">
+      <MobileAppDownloadCard audience="employee" />
+
       {pendingReceiptCount > 0 ? (
         <section className="rounded-2xl border border-amber-300 bg-amber-50/90 p-4 sm:p-5">
           <div className="flex flex-wrap items-center justify-between gap-3">
