@@ -91,15 +91,17 @@ function formatFromCompact(compact: string): string {
 
 /**
  * Extract Saudi / GCC plate from OCR. Ignores UUID/hex noise from storage URLs.
+ * Preference: plate read from the uploaded photo wins.
+ * Fallback: assigned vehicle plate only when OCR finds no plate candidates.
  */
 export function parsePlateCandidates(
   ocrText: string,
   assignedPlate?: string | null
 ): { best: string | null; candidates: string[] } {
+  const assigned = assignedPlate?.trim() || null;
   const latin = toLatinPlateChars(ocrText || "");
   if (!latin.trim()) {
-    const assigned = assignedPlate?.trim();
-    return { best: assigned || null, candidates: assigned ? [assigned] : [] };
+    return { best: assigned, candidates: assigned ? [assigned] : [] };
   }
 
   const compactAll = latin.replace(/[^A-Z0-9]/g, "");
@@ -160,6 +162,7 @@ export function parsePlateCandidates(
 
   const ranked = [...scored.entries()].sort((a, b) => b[1] - a[1]);
   const candidates = ranked.map(([p]) => p).slice(0, 8);
-  const best = candidates[0] ?? (assignedPlate?.trim() || null);
+  // Photo OCR candidates first; assigned vehicle only if nothing was read from the image.
+  const best = candidates[0] ?? assigned;
   return { best, candidates };
 }
