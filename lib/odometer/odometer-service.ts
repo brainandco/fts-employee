@@ -211,6 +211,7 @@ export async function analyzeOdometerPhotos(
       : okCtx.vehicle.mileage;
 
   const odoParsed = parseOdometerCandidates(odoRaw, odometerAnchor);
+  // Photo OCR first; if OCR found nothing, fall back to assigned vehicle plate.
   const suggestedPlate = plateParsed.best || okCtx.vehicle.plate_number || null;
 
   const qAfter = await getOcrUsageThisMonth();
@@ -301,7 +302,8 @@ export async function confirmOdometerReading(
   const kmFinal = Math.round(input.odometerKmFinal);
   const capturedIso = capturedAt.toISOString();
   const driverName = okCtx.employee.full_name || "Driver";
-  const plate = okCtx.vehicle.plate_number || plateFinal;
+  // Sheet + notifications use the plate confirmed from the start/end duty photo.
+  const plate = plateFinal;
   const adminLink = (() => {
     const base = (process.env.NEXT_PUBLIC_ADMIN_PORTAL_URL ?? "").replace(/\/$/, "");
     return base ? `${base}/vehicles/odometer` : "/vehicles/odometer";

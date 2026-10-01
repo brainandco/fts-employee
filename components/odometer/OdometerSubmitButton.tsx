@@ -160,16 +160,27 @@ export function OdometerSubmitButton({
       if (!res.ok) throw new Error(typeof data.message === "string" ? data.message : "OCR failed");
       const a = data as AnalyzeResponse;
       setAnalysis(a);
+      // Prefer plate from uploaded photo OCR; otherwise pre-fill assigned vehicle plate.
       const parts = splitPlateParts(a.plate.suggested || a.vehicle.plate_number || "");
       setPlateLetters(parts.letters);
       setPlateDigits(parts.digits);
       setKmFinal(a.odometer.suggestedKm != null ? String(a.odometer.suggestedKm) : "");
+      const fromPhoto =
+        Boolean(a.plate.raw?.trim()) && (a.plate.candidates?.length ?? 0) > 0;
       if (a.ocrStatus === "skipped_quota") {
-        setMessage("Monthly OCR budget reached (~$13). Enter plate and km manually — photos are still saved.");
+        setMessage(
+          "Monthly OCR budget reached. Assigned vehicle plate is pre-filled — edit if the photo shows a different plate."
+        );
       } else if (a.ocrStatus === "failed") {
-        setMessage("OCR failed. Enter plate and km manually from the photos.");
+        setMessage(
+          "OCR failed. Assigned vehicle plate is pre-filled — edit if the photo shows a different plate."
+        );
+      } else if (fromPhoto) {
+        setMessage("Plate read from photo. Review, edit if needed, then confirm.");
       } else {
-        setMessage("Review OCR suggestions, edit if needed, then confirm.");
+        setMessage(
+          "Could not read plate from photo. Assigned vehicle plate is pre-filled — edit if needed."
+        );
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Analyze failed");
