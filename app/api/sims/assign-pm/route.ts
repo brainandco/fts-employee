@@ -6,6 +6,7 @@ import {
   targetEmployeeIsInPmRegionScope,
 } from "@/lib/pm-team-assignees";
 import { upsertPendingReceipts } from "@/lib/resource-receipts";
+import { dispatchNotifications } from "@/lib/notifications/dispatch-notifications";
 
 /** PM assigns available SIMs. Body `assignment_mode`: use `region` (default) for employees in PM regions; `team` is legacy. */
 export async function POST(req: Request) {
@@ -111,17 +112,19 @@ export async function POST(req: Request) {
       .eq("email", toEmployee.email)
       .maybeSingle();
     if (recipient?.id) {
-      await supabase.from("notifications").insert({
-        recipient_user_id: recipient.id,
-        title: "Confirm receipt: SIM(s) assigned",
-        body:
-          availableIds.length === 1
-            ? "A SIM was assigned to you. Please open Confirm receipt and confirm you received the card."
-            : `${availableIds.length} SIMs were assigned to you. Please open Confirm receipt to confirm.`,
-        category: "assignment_receipt",
-        link: "/dashboard/receipts",
-        meta: { sim_ids: availableIds, assigned_by: session.user.id },
-      });
+      await dispatchNotifications(supabase, [
+        {
+          recipient_user_id: recipient.id,
+          title: "Confirm receipt: SIM(s) assigned",
+          body:
+            availableIds.length === 1
+              ? "A SIM was assigned to you. Please open Confirm receipt and confirm you received the card."
+              : `${availableIds.length} SIMs were assigned to you. Please open Confirm receipt to confirm.`,
+          category: "assignment_receipt",
+          link: "/dashboard/receipts",
+          meta: { sim_ids: availableIds, assigned_by: session.user.id },
+        },
+      ]);
     }
   }
 

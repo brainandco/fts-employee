@@ -8,6 +8,7 @@ import {
 } from "@/lib/pm-team-assignees";
 import { VEHICLE_ASSIGNEE_ROLES, VEHICLE_ASSIGNEE_ROLES_LABEL } from "@/lib/employees/vehicle-assignment-roles";
 import { upsertPendingReceipts } from "@/lib/resource-receipts";
+import { dispatchNotifications } from "@/lib/notifications/dispatch-notifications";
 
 /** PM assigns available vehicles. Body `assignment_mode`: use `region` (default) for drivers in PM regions; `team` is legacy. */
 export async function POST(req: Request) {
@@ -140,17 +141,19 @@ export async function POST(req: Request) {
       .eq("email", toEmployee.email)
       .maybeSingle();
     if (recipient?.id && eligible.length > 0) {
-      await supabase.from("notifications").insert({
-        recipient_user_id: recipient.id,
-        title: "Confirm receipt: vehicle assigned",
-        body:
-          eligible.length === 1
-            ? "A vehicle was assigned to you. Please open Confirm receipt and confirm you received keys/access."
-            : `${eligible.length} vehicles were assigned to you. Please open Confirm receipt to confirm receipt.`,
-        category: "assignment_receipt",
-        link: "/dashboard/receipts",
-        meta: { vehicle_ids: eligible.map((v) => v.id), assigned_by: session.user.id },
-      });
+      await dispatchNotifications(supabase, [
+        {
+          recipient_user_id: recipient.id,
+          title: "Confirm receipt: vehicle assigned",
+          body:
+            eligible.length === 1
+              ? "A vehicle was assigned to you. Please open Confirm receipt and confirm you received keys/access."
+              : `${eligible.length} vehicles were assigned to you. Please open Confirm receipt to confirm receipt.`,
+          category: "assignment_receipt",
+          link: "/dashboard/receipts",
+          meta: { vehicle_ids: eligible.map((v) => v.id), assigned_by: session.user.id },
+        },
+      ]);
     }
   }
 

@@ -5,6 +5,7 @@ import { NextResponse } from "next/server";
 import { createServerSupabaseAdmin } from "@/lib/supabase/admin";
 import { uploadResourcePhotosBuffer } from "@/lib/supabase/upload-resource-photos";
 import { collectSuperUserRecipientUserIds } from "@/lib/notify-super-users";
+import { dispatchNotifications } from "@/lib/notifications/dispatch-notifications";
 
 const MAX_BYTES = 15 * 1024 * 1024;
 
@@ -77,7 +78,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     link: `/approvals/${id}`,
     meta: { approval_id: id, stage: "super_after_performa" },
   }));
-  if (rows.length) await dataClient.from("notifications").insert(rows);
+  if (rows.length) await dispatchNotifications(dataClient, rows);
 
   return NextResponse.json({ ok: true });
 }

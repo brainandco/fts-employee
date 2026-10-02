@@ -1,6 +1,7 @@
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { getDataClient } from "@/lib/supabase/server";
 import { NextResponse } from "next/server";
+import { dispatchNotifications } from "@/lib/notifications/dispatch-notifications";
 
 /**
  * QC asks an employee in the same region to return all assigned assets, vehicle, and SIMs before leaving the team.
@@ -49,14 +50,16 @@ export async function POST(req: Request) {
     return NextResponse.json({ message: "Target user has no portal login" }, { status: 400 });
   }
 
-  await supabase.from("notifications").insert({
-    recipient_user_id: recipient.id,
-    title: "QC: please return assigned items",
-    body: `${qcEmp.full_name ?? "QC"} requests that you return all assigned assets, vehicle, and SIMs via the Employee Portal before leaving or changing team. ${message}`,
-    category: "qc_return_request",
-    link: "/dashboard",
-    meta: { qc_employee_id: qcEmp.id, target_employee_id: target.id },
-  });
+  await dispatchNotifications(supabase, [
+    {
+      recipient_user_id: recipient.id,
+      title: "QC: please return assigned items",
+      body: `${qcEmp.full_name ?? "QC"} requests that you return all assigned assets, vehicle, and SIMs via the Employee Portal before leaving or changing team. ${message}`,
+      category: "qc_return_request",
+      link: "/dashboard",
+      meta: { qc_employee_id: qcEmp.id, target_employee_id: target.id },
+    },
+  ]);
 
   return NextResponse.json({ ok: true });
 }

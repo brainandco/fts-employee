@@ -1,6 +1,7 @@
 import { getDataClient } from "@/lib/supabase/server";
 import { getRequestAuth } from "@/lib/supabase/request-auth";
 import { getPmReviewerScopeRegionIds } from "@/lib/pm-team-assignees";
+import { dispatchNotifications } from "@/lib/notifications/dispatch-notifications";
 import { NextResponse } from "next/server";
 
 type PendingTransfer = {
@@ -235,14 +236,16 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   if (requester?.email) {
     const { data: requesterUser } = await supabase.from("users_profile").select("id").eq("email", requester.email).maybeSingle();
     if (requesterUser?.id) {
-      await supabase.from("notifications").insert({
-        recipient_user_id: requesterUser.id,
-        title: `Transfer request ${finalStatus.toLowerCase()}`,
-        body: `Your ${requestData.request_type.replaceAll("_", " ")} request has been ${finalStatus.toLowerCase()}.`,
-        category: "transfer_request",
-        link: `/employee-requests/transfers/${requestData.id}`,
-        meta: { transfer_request_id: requestData.id, status: finalStatus },
-      });
+      await dispatchNotifications(supabase, [
+        {
+          recipient_user_id: requesterUser.id,
+          title: `Transfer request ${finalStatus.toLowerCase()}`,
+          body: `Your ${requestData.request_type.replaceAll("_", " ")} request has been ${finalStatus.toLowerCase()}.`,
+          category: "transfer_request",
+          link: `/employee-requests/transfers/${requestData.id}`,
+          meta: { transfer_request_id: requestData.id, status: finalStatus },
+        },
+      ]);
     }
   }
 
