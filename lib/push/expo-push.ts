@@ -26,6 +26,9 @@ export async function sendExpoPushToUser(
     title: payload.title,
     body: payload.body,
     data: payload.data ?? {},
+    // High priority + channel so Android shows lock-screen / tray alerts when the app is closed.
+    priority: "high" as const,
+    channelId: "default",
   }));
 
   for (let i = 0; i < messages.length; i += 100) {

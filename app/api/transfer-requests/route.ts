@@ -4,6 +4,7 @@ import { notifyPmAndQcInRegion } from "@/lib/notifyRegionStaff";
 import { loadPmScopeIds } from "@/lib/pm-team-assignees";
 import { assetCategoryRequiresConditionPhotos } from "@/lib/assets/asset-condition-photos";
 import { hasMinimumPhotos, parseImageUrlArray } from "@/lib/resource-photos";
+import { dispatchNotifications } from "@/lib/notifications/dispatch-notifications";
 import { NextResponse } from "next/server";
 type TransferType = "vehicle_swap" | "vehicle_replacement" | "drive_swap" | "asset_transfer";
 
@@ -246,14 +247,16 @@ export async function POST(req: Request) {
 
   const detailLink = `/employee-requests/transfers/${inserted.id}`;
 
-  await supabase.from("notifications").insert({
-    recipient_user_id: session.user.id,
-    title: "Transfer request submitted",
-    body: `Your ${request_type.replaceAll("_", " ")} request was submitted. Track it under Employee requests.`,
-    category: "transfer_request",
-    link: detailLink,
-    meta: { transfer_request_id: inserted.id, request_type, self_submitted: true },
-  });
+  await dispatchNotifications(supabase, [
+    {
+      recipient_user_id: session.user.id,
+      title: "Transfer request submitted",
+      body: `Your ${request_type.replaceAll("_", " ")} request was submitted. Track it under Employee requests.`,
+      category: "transfer_request",
+      link: detailLink,
+      meta: { transfer_request_id: inserted.id, request_type, self_submitted: true },
+    },
+  ]);
 
   if (employee.region_id && staffNotifyProjectId) {
     await notifyPmAndQcInRegion(
@@ -285,14 +288,16 @@ export async function POST(req: Request) {
         .eq("status", "ACTIVE")
         .maybeSingle();
       if (targetUser?.id && targetUser.id !== session.user.id) {
-        await supabase.from("notifications").insert({
-          recipient_user_id: targetUser.id,
-          title: "You are named in a transfer request",
-          body: `${employee.full_name} submitted a ${request_type.replaceAll("_", " ")} request that involves you. Open it for details.`,
-          category: "transfer_request",
-          link: detailLink,
-          meta: { transfer_request_id: inserted.id, request_type, target_employee_id },
-        });
+        await dispatchNotifications(supabase, [
+          {
+            recipient_user_id: targetUser.id,
+            title: "You are named in a transfer request",
+            body: `${employee.full_name} submitted a ${request_type.replaceAll("_", " ")} request that involves you. Open it for details.`,
+            category: "transfer_request",
+            link: detailLink,
+            meta: { transfer_request_id: inserted.id, request_type, target_employee_id },
+          },
+        ]);
       }
     }
   }
