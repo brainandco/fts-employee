@@ -6,7 +6,7 @@ import { assetCategoryRequiresConditionPhotos } from "@/lib/assets/asset-conditi
 import { hasMinimumPhotos, parseImageUrlArray } from "@/lib/resource-photos";
 import { dispatchNotifications } from "@/lib/notifications/dispatch-notifications";
 import { NextResponse } from "next/server";
-import { TEAMS_FEATURE_DISABLED, teamsFeatureDisabledJson } from "@/lib/teams/feature-flag";
+import { teamsFeatureDisabledJson } from "@/lib/teams/feature-flag";
 type TransferType = "vehicle_swap" | "vehicle_replacement" | "drive_swap" | "asset_transfer";
 
 const REQUEST_TYPES: TransferType[] = ["vehicle_swap", "vehicle_replacement", "drive_swap", "asset_transfer"];
@@ -83,7 +83,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ message: "Valid request_type and request_reason are required" }, { status: 400 });
   }
   const request_type = request_type_input as TransferType;
-  if (TEAMS_FEATURE_DISABLED && request_type === "drive_swap") {
+  if (request_type === "drive_swap") {
     return NextResponse.json(teamsFeatureDisabledJson(), { status: 410 });
   }
 
@@ -125,7 +125,6 @@ export async function POST(req: Request) {
   const payload: Record<string, string> = {};
 
   const targetEmployeeIdInput = typeof body.target_employee_id === "string" ? body.target_employee_id.trim() : "";
-  const targetTeamIdInput = typeof body.target_team_id === "string" ? body.target_team_id.trim() : "";
   const assetIdInput = typeof body.asset_id === "string" ? body.asset_id.trim() : "";
 
   if (request_type === "vehicle_swap") {
@@ -156,32 +155,6 @@ export async function POST(req: Request) {
       return NextResponse.json({ message: "No assigned vehicle found for replacement request" }, { status: 400 });
     }
     payload.own_vehicle_id = ownVehicle.vehicle_id;
-  }
-
-  if (request_type === "drive_swap") {
-    if (!isDriver) return NextResponse.json({ message: "Only Driver/Rigger can request drive swap" }, { status: 400 });
-    if (!targetTeamIdInput) return NextResponse.json({ message: "Target team is required for drive swap" }, { status: 400 });
-
-    const { data: ownTeam } = await supabase
-      .from("teams")
-      .select("id, region_id, driver_rigger_employee_id, project_id")
-      .eq("driver_rigger_employee_id", employee.id)
-      .maybeSingle();
-    if (!ownTeam) return NextResponse.json({ message: "Your team record was not found" }, { status: 400 });
-    if (ownTeam.project_id) staffNotifyProjectId = ownTeam.project_id;
-
-    const { data: targetTeam } = await supabase
-      .from("teams")
-      .select("id, region_id, driver_rigger_employee_id")
-      .eq("id", targetTeamIdInput)
-      .single();
-    if (!targetTeam || targetTeam.region_id !== employee.region_id || !targetTeam.driver_rigger_employee_id || targetTeam.id === ownTeam.id) {
-      return NextResponse.json({ message: "Target team must be in your region and have a driver/rigger" }, { status: 400 });
-    }
-    target_team_id = targetTeam.id;
-    target_employee_id = targetTeam.driver_rigger_employee_id;
-    payload.requester_team_id = ownTeam.id;
-    payload.target_driver_id = targetTeam.driver_rigger_employee_id;
   }
 
   const handoverUrls = parseImageUrlArray(body.handover_image_urls);

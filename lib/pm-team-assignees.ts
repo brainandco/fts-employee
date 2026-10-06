@@ -69,43 +69,14 @@ export async function getPmReviewerScopeRegionIds(
 }
 
 /**
- * Teams the PM may assign into. Union of:
- * - Teams on any project in pm_employee_projects ∪ projects.pm_user_id (portal user).
- * - Teams in primary region ∪ pm_region_assignments (same region, different projects).
+ * Teams retired — always empty. Kept so unused team-slot helpers stay inert.
  */
 async function fetchTeamsForPmScope(
-  supabase: SupabaseClient,
-  pm: PmContext,
-  authUserId: string | null
+  _supabase: SupabaseClient,
+  _pm: PmContext,
+  _authUserId: string | null
 ): Promise<TeamRow[]> {
-  const { allowedRegionIds, allowedProjectIds } = await loadPmScopeIds(supabase, pm, authUserId);
-  const byId = new Map<string, TeamRow>();
-
-  if (allowedProjectIds.length > 0) {
-    const { data, error } = await supabase
-      .from("teams")
-      .select("id, name, dt_employee_id, driver_rigger_employee_id")
-      .in("project_id", allowedProjectIds);
-    if (!error) {
-      for (const t of data ?? []) {
-        byId.set(t.id as string, t as TeamRow);
-      }
-    }
-  }
-
-  if (allowedRegionIds.length > 0) {
-    const { data, error } = await supabase
-      .from("teams")
-      .select("id, name, dt_employee_id, driver_rigger_employee_id")
-      .in("region_id", allowedRegionIds);
-    if (!error) {
-      for (const t of data ?? []) {
-        byId.set(t.id as string, t as TeamRow);
-      }
-    }
-  }
-
-  return [...byId.values()];
+  return [];
 }
 
 /**
@@ -289,7 +260,7 @@ export async function targetEmployeeIsInPmRegionScope(
   return true;
 }
 
-/** Team slot or region employee — used when fulfilling QC requests, etc. */
+/** Region employee only — team slots are retired. */
 export async function targetEmployeeIsInPmAssignmentScope(
   supabase: SupabaseClient,
   pm: PmContext,
@@ -297,18 +268,12 @@ export async function targetEmployeeIsInPmAssignmentScope(
   authUserId: string | null,
   regionValidation: PmRegionTargetValidation
 ): Promise<boolean> {
-  const onTeam = await targetEmployeeIsOnPmTeam(supabase, pm, targetEmployeeId, authUserId);
-  if (onTeam) return true;
   return targetEmployeeIsInPmRegionScope(supabase, pm, targetEmployeeId, authUserId, regionValidation);
 }
 
-/** All teams (portal admin assign — global scope). */
-async function fetchAllTeamsWithSlots(supabase: SupabaseClient): Promise<TeamRow[]> {
-  const { data, error } = await supabase
-    .from("teams")
-    .select("id, name, dt_employee_id, driver_rigger_employee_id");
-  if (error) return [];
-  return (data ?? []) as TeamRow[];
+/** Teams retired — always empty. */
+async function fetchAllTeamsWithSlots(_supabase: SupabaseClient): Promise<TeamRow[]> {
+  return [];
 }
 
 /**

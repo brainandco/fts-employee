@@ -199,7 +199,7 @@ export default async function DashboardLayout({
         workspaceItems.push({ href: "/dashboard/pp", label: "Reporting teams" });
       }
       if (showPpTeamLeaveNav) {
-        workspaceItems.push({ href: "/dashboard/pp/leaves", label: "Team leave requests" });
+        workspaceItems.push({ href: "/dashboard/pp/leaves", label: "Leave approvals" });
       }
     }
     if (showTransferRequestsNav) {

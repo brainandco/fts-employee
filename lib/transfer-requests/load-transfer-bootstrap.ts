@@ -1,6 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { loadPmScopeIds } from "@/lib/pm-team-assignees";
-import { REGION_FALLBACK_TEAM_ID } from "@/lib/transfer-requests/constants";
 import { computeTransferAccess } from "@/lib/transfer-requests/access";
 
 type EmpRow = { id: string; full_name: string | null };
@@ -13,22 +12,15 @@ function uniqueById(rows: EmpRow[]): EmpRow[] {
   return [...m.values()];
 }
 
-export type TeamMemberPick = {
-  teamId: string;
-  teamName: string;
-  members: { id: string; full_name: string }[];
-};
-
-function flattenExcludedTeams(teams: TeamMemberPick[], excludeId: string): { id: string; full_name: string }[] {
-  const map = new Map<string, string>();
-  for (const t of teams) {
-    for (const m of t.members) {
-      if (m.id === excludeId) continue;
-      if (!map.has(m.id)) map.set(m.id, m.full_name);
-    }
-  }
-  return [...map.entries()]
-    .map(([id, full_name]) => ({ id, full_name }))
+function regionEmployeesWithRole(
+  regionEmployees: { id: string; full_name: string | null }[],
+  roleMap: Map<string, Set<string>>,
+  meId: string,
+  hasRole: (roles: Set<string>) => boolean
+): { id: string; full_name: string }[] {
+  return regionEmployees
+    .filter((e) => e.id !== meId && hasRole(roleMap.get(e.id) ?? new Set()))
+    .map((e) => ({ id: e.id, full_name: e.full_name ?? e.id }))
     .sort((a, b) => a.full_name.localeCompare(b.full_name));
 }
 
@@ -39,8 +31,6 @@ export type TransferBootstrap = {
   employees: { id: string; full_name: string }[];
   vehicleSwapDrivers: { id: string; full_name: string }[];
   assetTransferDts: { id: string; full_name: string }[];
-  driveSwapTeams: { id: string; name: string; driverId: string; driverName: string }[];
-  teamLabels: Record<string, string>;
   myAssets: { id: string; name: string; serial: string | null; category: string | null }[];
   replacementVehicles: { id: string; plate_number: string; make: string | null; model: string | null }[];
 };
@@ -101,20 +91,9 @@ export async function loadTransferBootstrap(
     .in("region_id", regionIdsForLists)
     .eq("status", "ACTIVE");
 
-  const { data: regionTeamsFull } = await supabase
-    .from("teams")
-    .select("id, name, region_id, dt_employee_id, driver_rigger_employee_id")
-    .in("region_id", regionIdsForLists);
-
-  const regionIds = (regionEmployees ?? []).map((e) => e.id);
-  const teamMemberIds = new Set<string>();
-  for (const t of regionTeamsFull ?? []) {
-    if (t.dt_employee_id) teamMemberIds.add(t.dt_employee_id as string);
-    if (t.driver_rigger_employee_id) teamMemberIds.add(t.driver_rigger_employee_id as string);
-  }
-  const allRoleIds = [...new Set([...regionIds, ...teamMemberIds])];
-  const { data: allRoleRows } = allRoleIds.length
-    ? await supabase.from("employee_roles").select("employee_id, role").in("employee_id", allRoleIds)
+  const regionEmployeeIds = (regionEmployees ?? []).map((e) => e.id);
+  const { data: allRoleRows } = regionEmployeeIds.length
+    ? await supabase.from("employee_roles").select("employee_id, role").in("employee_id", regionEmployeeIds)
     : { data: [] };
 
   const roleMap = new Map<string, Set<string>>();
@@ -123,115 +102,22 @@ export async function loadTransferBootstrap(
     roleMap.get(r.employee_id)!.add(r.role as string);
   }
 
-  const missingForNames = [...teamMemberIds].filter((id) => !regionIds.includes(id));
-  const { data: extraEmployees } = missingForNames.length
-    ? await supabase.from("employees").select("id, full_name, status").in("id", missingForNames).eq("status", "ACTIVE")
-    : { data: [] };
+  const vehicleSwapDrivers = regionEmployeesWithRole(
+    regionEmployees ?? [],
+    roleMap,
+    employee.id,
+    (s) => s.has("Driver/Rigger") || s.has("Self DT")
+  );
+  const assetTransferDts = regionEmployeesWithRole(
+    regionEmployees ?? [],
+    roleMap,
+    employee.id,
+    (s) => s.has("DT") || s.has("Self DT")
+  );
 
-  const empById = new Map<string, EmpRow>();
-  for (const e of regionEmployees ?? []) empById.set(e.id, { id: e.id, full_name: e.full_name });
-  for (const e of extraEmployees ?? []) empById.set(e.id, { id: e.id, full_name: e.full_name });
-
-  function isVehicleRole(id: string): boolean {
-    const s = roleMap.get(id);
-    return !!(s?.has("Driver/Rigger") || s?.has("Self DT"));
-  }
-  function isAssetRole(id: string): boolean {
-    const s = roleMap.get(id);
-    return !!(s?.has("DT") || s?.has("Self DT"));
-  }
-
-  const vehicleSwapTeams: TeamMemberPick[] = [];
-  const coveredDriverIds = new Set<string>();
-  for (const t of regionTeamsFull ?? []) {
-    const dr = t.driver_rigger_employee_id as string | null;
-    if (!dr || dr === employee.id) continue;
-    if (!isVehicleRole(dr)) continue;
-    const row = empById.get(dr);
-    if (!row) continue;
-    coveredDriverIds.add(dr);
-    vehicleSwapTeams.push({
-      teamId: t.id as string,
-      teamName: typeof t.name === "string" && t.name.trim() ? t.name.trim() : "Team",
-      members: [{ id: dr, full_name: row.full_name ?? dr }],
-    });
-  }
-  vehicleSwapTeams.sort((a, b) => a.teamName.localeCompare(b.teamName));
-
-  const regionOnlyDrivers: { id: string; full_name: string }[] = [];
-  for (const e of regionEmployees ?? []) {
-    if (e.id === employee.id || !isVehicleRole(e.id)) continue;
-    if (coveredDriverIds.has(e.id)) continue;
-    regionOnlyDrivers.push({ id: e.id, full_name: e.full_name ?? e.id });
-  }
-  regionOnlyDrivers.sort((a, b) => a.full_name.localeCompare(b.full_name));
-  if (regionOnlyDrivers.length > 0) {
-    vehicleSwapTeams.push({
-      teamId: REGION_FALLBACK_TEAM_ID,
-      teamName: "Other drivers in your region",
-      members: regionOnlyDrivers,
-    });
-  }
-
-  const assetTransferTeams: TeamMemberPick[] = [];
-  const coveredDtIds = new Set<string>();
-  for (const t of regionTeamsFull ?? []) {
-    const dt = t.dt_employee_id as string | null;
-    if (!dt || dt === employee.id) continue;
-    if (!isAssetRole(dt)) continue;
-    const row = empById.get(dt);
-    if (!row) continue;
-    coveredDtIds.add(dt);
-    assetTransferTeams.push({
-      teamId: t.id as string,
-      teamName: typeof t.name === "string" && t.name.trim() ? t.name.trim() : "Team",
-      members: [{ id: dt, full_name: row.full_name ?? dt }],
-    });
-  }
-  assetTransferTeams.sort((a, b) => a.teamName.localeCompare(b.teamName));
-
-  const regionOnlyDts: { id: string; full_name: string }[] = [];
-  for (const e of regionEmployees ?? []) {
-    if (e.id === employee.id || !isAssetRole(e.id)) continue;
-    if (coveredDtIds.has(e.id)) continue;
-    regionOnlyDts.push({ id: e.id, full_name: e.full_name ?? e.id });
-  }
-  regionOnlyDts.sort((a, b) => a.full_name.localeCompare(b.full_name));
-  if (regionOnlyDts.length > 0) {
-    assetTransferTeams.push({
-      teamId: REGION_FALLBACK_TEAM_ID,
-      teamName: "Other DTs in your region",
-      members: regionOnlyDts,
-    });
-  }
-
-  const driveSwapTeams: { id: string; name: string; driverId: string; driverName: string }[] = [];
-  for (const t of regionTeamsFull ?? []) {
-    const dr = t.driver_rigger_employee_id as string | null;
-    if (!dr || dr === employee.id) continue;
-    if (!isVehicleRole(dr)) continue;
-    const row = empById.get(dr);
-    if (!row) continue;
-    driveSwapTeams.push({
-      id: t.id as string,
-      name: typeof t.name === "string" && t.name.trim() ? t.name.trim() : "Team",
-      driverId: dr,
-      driverName: row.full_name ?? dr,
-    });
-  }
-  driveSwapTeams.sort((a, b) => a.name.localeCompare(b.name));
-
-  const employeesForLabels = uniqueById([
-    ...(regionEmployees ?? []).map((e) => ({ id: e.id, full_name: e.full_name })),
-    ...vehicleSwapTeams.flatMap((x) => x.members.map((m) => ({ id: m.id, full_name: m.full_name }))),
-    ...assetTransferTeams.flatMap((x) => x.members.map((m) => ({ id: m.id, full_name: m.full_name }))),
-  ]);
-
-  const teamLabels: Record<string, string> = {};
-  for (const t of regionTeamsFull ?? []) {
-    teamLabels[t.id as string] = typeof t.name === "string" && t.name.trim() ? t.name.trim() : "Team";
-  }
-  teamLabels[REGION_FALLBACK_TEAM_ID] = "Other (region)";
+  const employeesForLabels = uniqueById(
+    (regionEmployees ?? []).map((e) => ({ id: e.id, full_name: e.full_name }))
+  );
 
   const { data: myAssets } = await supabase
     .from("assets")
@@ -259,10 +145,8 @@ export async function loadTransferBootstrap(
     access,
     requests: (requests ?? []) as Record<string, unknown>[],
     employees: employeesForLabels.map((e) => ({ id: e.id, full_name: e.full_name ?? e.id })),
-    vehicleSwapDrivers: flattenExcludedTeams(vehicleSwapTeams, employee.id),
-    assetTransferDts: flattenExcludedTeams(assetTransferTeams, employee.id),
-    driveSwapTeams,
-    teamLabels,
+    vehicleSwapDrivers,
+    assetTransferDts,
     myAssets: (myAssets ?? []).map((a) => ({
       id: a.id as string,
       name: a.name as string,

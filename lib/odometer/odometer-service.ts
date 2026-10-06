@@ -118,18 +118,6 @@ export async function loadAssigneeContext(supabase: SupabaseClient, employeeId: 
     region_name = (region?.name as string | null) ?? null;
   }
 
-  let team_id: string | null = null;
-  let team_name: string | null = null;
-  const { data: teamAsDriver } = await supabase
-    .from("teams")
-    .select("id, name")
-    .eq("driver_rigger_employee_id", employeeId)
-    .maybeSingle();
-  if (teamAsDriver) {
-    team_id = teamAsDriver.id as string;
-    team_name = (teamAsDriver.name as string | null) ?? null;
-  }
-
   return {
     employee: {
       id: employee.id as string,
@@ -145,8 +133,8 @@ export async function loadAssigneeContext(supabase: SupabaseClient, employeeId: 
       model: (vehicle.model as string | null) ?? null,
       mileage: typeof vehicle.mileage === "number" ? vehicle.mileage : Number(vehicle.mileage) || 0,
     },
-    team_id,
-    team_name,
+    team_id: null as string | null,
+    team_name: null as string | null,
   };
 }
 

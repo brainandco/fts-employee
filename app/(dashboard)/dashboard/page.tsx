@@ -393,7 +393,7 @@ export default async function DashboardPage() {
           <p className="mt-1 text-sm text-zinc-600">
             Open teams for member tools, SIMs, and vehicles.
             {showPpTeamLeaveLink
-              ? " Post processors can also open team leave requests; Reporting Team uses Leave for their own requests only."
+              ? " Post processors can also open leave approvals; Reporting Team uses Leave for their own requests only."
               : " Use Leave in the sidebar for your own leave requests."}
           </p>
           <div className="mt-4 flex flex-wrap gap-3">
@@ -405,7 +405,7 @@ export default async function DashboardPage() {
                 href="/dashboard/pp/leaves"
                 className="rounded border border-teal-300 bg-white px-4 py-2 text-sm font-medium text-teal-900 hover:bg-teal-50"
               >
-                Team leave requests
+                Leave approvals
               </Link>
             ) : null}
           </div>
@@ -414,7 +414,7 @@ export default async function DashboardPage() {
 
       {isPp && TEAMS_FEATURE_DISABLED && showPpTeamLeaveLink ? (
         <section className="rounded-2xl border border-teal-200 bg-gradient-to-r from-teal-50 to-cyan-50 p-5 sm:p-6">
-          <h2 className="text-lg font-semibold text-zinc-900">Team leave requests</h2>
+          <h2 className="text-lg font-semibold text-zinc-900">Leave approvals</h2>
           <p className="mt-1 text-sm text-zinc-600">Review leave requests for people in your reporting scope.</p>
           <div className="mt-4">
             <Link

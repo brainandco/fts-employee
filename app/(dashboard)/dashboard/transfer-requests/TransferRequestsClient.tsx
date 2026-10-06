@@ -5,8 +5,6 @@ import { useRouter } from "next/navigation";
 import { ReturnHandInPhotos } from "@/components/assets/ReturnHandInPhotos";
 import { assetCategoryRequiresConditionPhotos } from "@/lib/assets/asset-condition-photos";
 import { MIN_RESOURCE_PHOTOS } from "@/lib/resource-photos";
-import { TEAMS_FEATURE_DISABLED } from "@/lib/teams/feature-flag";
-
 type RequestType = "vehicle_swap" | "vehicle_replacement" | "drive_swap" | "asset_transfer";
 type TransferRequest = {
   id: string;
@@ -46,8 +44,6 @@ export function TransferRequestsClient({
   employees,
   vehicleSwapDrivers,
   assetTransferDts,
-  driveSwapDrivers,
-  teamLabels,
   myAssets,
   replacementVehicles,
 }: {
@@ -60,8 +56,6 @@ export function TransferRequestsClient({
   employees: EmployeeOption[];
   vehicleSwapDrivers: EmployeeOption[];
   assetTransferDts: EmployeeOption[];
-  driveSwapDrivers: EmployeeOption[];
-  teamLabels: Record<string, string>;
   myAssets: AssetOption[];
   replacementVehicles: VehicleOption[];
 }) {
@@ -70,7 +64,6 @@ export function TransferRequestsClient({
     const types: RequestType[] = [];
     if (canRequestVehicleFlows) {
       types.push("vehicle_swap", "vehicle_replacement");
-      if (!TEAMS_FEATURE_DISABLED) types.push("drive_swap");
     }
     if (canRequestAssetTransfer) types.push("asset_transfer");
     return types;
@@ -96,11 +89,6 @@ export function TransferRequestsClient({
   const [reviewBusy, setReviewBusy] = useState(false);
 
   const employeeMap = useMemo(() => new Map(employees.map((e) => [e.id, e.full_name])), [employees]);
-  const teamLookup = useMemo(() => {
-    const m = new Map<string, string>();
-    for (const [id, label] of Object.entries(teamLabels)) m.set(id, label);
-    return m;
-  }, [teamLabels]);
   const assetMap = useMemo(() => new Map(myAssets.map((a) => [a.id, `${a.name}${a.serial ? ` (${a.serial})` : ""}`])), [myAssets]);
 
   const selectedAsset = useMemo(() => myAssets.find((a) => a.id === assetId) ?? null, [myAssets, assetId]);
@@ -143,18 +131,12 @@ export function TransferRequestsClient({
     [requests, meId]
   );
 
-  const driverOptions =
-    requestType === "drive_swap" ? driveSwapDrivers : vehicleSwapDrivers;
-
   async function submitRequest(e: React.FormEvent) {
     e.preventDefault();
     setFormError("");
     if (!reason.trim()) return setFormError("Reason is required.");
     if (requestType === "vehicle_swap") {
       if (!targetEmployeeId) return setFormError("Choose the driver to swap with.");
-    }
-    if (requestType === "drive_swap") {
-      if (!targetEmployeeId) return setFormError("Choose the driver to swap teams with.");
     }
     if (requestType === "asset_transfer") {
       if (!targetEmployeeId) return setFormError("Choose the DT receiving the asset.");
@@ -232,7 +214,6 @@ export function TransferRequestsClient({
               >
                 {allowedRequestTypes.includes("vehicle_swap") ? <option value="vehicle_swap">Vehicle Swap</option> : null}
                 {allowedRequestTypes.includes("vehicle_replacement") ? <option value="vehicle_replacement">Vehicle Replacement</option> : null}
-                {allowedRequestTypes.includes("drive_swap") ? <option value="drive_swap">Drive Swap</option> : null}
                 {allowedRequestTypes.includes("asset_transfer") ? <option value="asset_transfer">Asset Transfer</option> : null}
               </select>
             </label>
@@ -309,27 +290,6 @@ export function TransferRequestsClient({
               </>
             )}
 
-            {requestType === "drive_swap" && (
-              <label className="text-sm text-zinc-700 md:col-span-2">
-                Other driver (swap team assignments with)
-                <select
-                  className="mt-1 w-full rounded border border-zinc-300 px-3 py-2"
-                  value={targetEmployeeId}
-                  onChange={(e) => setTargetEmployeeId(e.target.value)}
-                >
-                  <option value="">Select driver</option>
-                  {driveSwapDrivers.map((m) => (
-                    <option key={m.id} value={m.id}>
-                      {m.full_name}
-                    </option>
-                  ))}
-                </select>
-                {driveSwapDrivers.length === 0 ? (
-                  <p className="mt-1 text-sm text-amber-700">No other drivers available for drive swap.</p>
-                ) : null}
-              </label>
-            )}
-
             <label className="text-sm text-zinc-700 md:col-span-2">
               Reason
               <input
@@ -369,7 +329,6 @@ export function TransferRequestsClient({
                       </p>
                       <p>Requester: {employeeMap.get(r.requester_employee_id) ?? "—"}</p>
                       {r.target_employee_id ? <p>Target employee: {employeeMap.get(r.target_employee_id) ?? "—"}</p> : null}
-                      {r.target_team_id ? <p>Target team: {teamLookup.get(r.target_team_id) ?? "—"}</p> : null}
                       {r.asset_id ? <p>Asset: {assetMap.get(r.asset_id) ?? r.asset_id}</p> : null}
                       {r.request_type === "asset_transfer" &&
                       Array.isArray(r.handover_image_urls) &&
@@ -506,7 +465,6 @@ export function TransferRequestsClient({
                 </p>
                 <p>Reason: {r.request_reason}</p>
                 {r.target_employee_id ? <p>Target: {employeeMap.get(r.target_employee_id) ?? "—"}</p> : null}
-                {r.target_team_id ? <p>Team: {teamLookup.get(r.target_team_id) ?? "—"}</p> : null}
                 {r.asset_id ? <p>Asset: {assetMap.get(r.asset_id) ?? "—"}</p> : null}
                 {r.request_type === "asset_transfer" &&
                 Array.isArray(r.handover_image_urls) &&

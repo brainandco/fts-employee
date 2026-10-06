@@ -3,7 +3,7 @@ import { getRequestAuth } from "@/lib/supabase/request-auth";
 import { getPmReviewerScopeRegionIds } from "@/lib/pm-team-assignees";
 import { dispatchNotifications } from "@/lib/notifications/dispatch-notifications";
 import { NextResponse } from "next/server";
-import { TEAMS_FEATURE_DISABLED, teamsFeatureDisabledJson } from "@/lib/teams/feature-flag";
+import { teamsFeatureDisabledJson } from "@/lib/teams/feature-flag";
 
 type PendingTransfer = {
   id: string;
@@ -69,6 +69,10 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   const now = new Date().toISOString();
 
   if (action === "accept") {
+    if (requestData.request_type === "drive_swap") {
+      return NextResponse.json(teamsFeatureDisabledJson(), { status: 410 });
+    }
+
     if (requestData.request_type === "vehicle_swap") {
       const targetEmployeeId = requestData.target_employee_id;
       if (!targetEmployeeId) return NextResponse.json({ message: "Target employee missing for swap" }, { status: 400 });
@@ -152,43 +156,6 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
           assigned_at: now,
         })
         .eq("id", replacement_vehicle_id);
-    }
-
-    if (requestData.request_type === "drive_swap") {
-      if (TEAMS_FEATURE_DISABLED) return NextResponse.json(teamsFeatureDisabledJson(), { status: 410 });
-      const targetEmployeeId = requestData.target_employee_id;
-      if (!targetEmployeeId) return NextResponse.json({ message: "Target driver missing for drive swap" }, { status: 400 });
-
-      const { data: ownTeam } = await supabase
-        .from("teams")
-        .select("id, driver_rigger_employee_id, region_id")
-        .eq("driver_rigger_employee_id", requestData.requester_employee_id)
-        .maybeSingle();
-      const { data: targetTeam } = await supabase
-        .from("teams")
-        .select("id, driver_rigger_employee_id, region_id")
-        .eq("driver_rigger_employee_id", targetEmployeeId)
-        .maybeSingle();
-
-      const driveSwapRegionsOk = isPmReviewer
-        ? !!(
-            ownTeam?.region_id &&
-            targetTeam?.region_id &&
-            pmReviewerRegionIds.includes(ownTeam.region_id) &&
-            pmReviewerRegionIds.includes(targetTeam.region_id)
-          )
-        : ownTeam?.region_id === reviewer.region_id && targetTeam?.region_id === reviewer.region_id;
-      if (
-        !ownTeam?.id ||
-        !targetTeam?.id ||
-        !driveSwapRegionsOk ||
-        !targetTeam.driver_rigger_employee_id
-      ) {
-        return NextResponse.json({ message: "Drive swap participants are not valid anymore" }, { status: 400 });
-      }
-
-      await supabase.from("teams").update({ driver_rigger_employee_id: targetTeam.driver_rigger_employee_id }).eq("id", ownTeam.id);
-      await supabase.from("teams").update({ driver_rigger_employee_id: requestData.requester_employee_id }).eq("id", targetTeam.id);
     }
 
     if (requestData.request_type === "asset_transfer") {
