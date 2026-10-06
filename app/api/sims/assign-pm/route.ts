@@ -2,20 +2,18 @@ import { getDataClient } from "@/lib/supabase/server";
 import { getRequestAuth } from "@/lib/supabase/request-auth";
 import { NextResponse } from "next/server";
 import {
-  targetEmployeeIsOnPmTeam,
   targetEmployeeIsInPmRegionScope,
 } from "@/lib/pm-team-assignees";
 import { upsertPendingReceipts } from "@/lib/resource-receipts";
 import { dispatchNotifications } from "@/lib/notifications/dispatch-notifications";
 
-/** PM assigns available SIMs. Body `assignment_mode`: use `region` (default) for employees in PM regions; `team` is legacy. */
+/** PM assigns available SIMs to employees in PM regions. */
 export async function POST(req: Request) {
   const auth = await getRequestAuth(req);
   if (!auth) return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
   const session = auth.session;
 
   const body = await req.json().catch(() => ({}));
-  const assignmentMode: "team" | "region" = body.assignment_mode === "team" ? "team" : "region";
   const simIds = Array.isArray(body.sim_ids) ? body.sim_ids.filter((id: unknown) => typeof id === "string") : [];
   const employeeId = typeof body.employee_id === "string" ? body.employee_id.trim() : "";
   if (!employeeId || simIds.length === 0) {
@@ -53,21 +51,13 @@ export async function POST(req: Request) {
     .maybeSingle();
   if (qcRole) return NextResponse.json({ message: "Cannot assign SIMs to QC." }, { status: 400 });
 
-  const inScope =
-    assignmentMode === "team"
-      ? await targetEmployeeIsOnPmTeam(supabase, pmEmployee, employeeId, session.user.id)
-      : await targetEmployeeIsInPmRegionScope(supabase, pmEmployee, employeeId, session.user.id, {
-          excludeQc: true,
-          requireVehicleRoles: false,
-        });
+  const inScope = await targetEmployeeIsInPmRegionScope(supabase, pmEmployee, employeeId, session.user.id, {
+    excludeQc: true,
+    requireVehicleRoles: false,
+  });
   if (!inScope) {
     return NextResponse.json(
-      {
-        message:
-          assignmentMode === "team"
-            ? "Assign only to a DT or Driver/Rigger on a team in your scope (team region/project in Admin, or project PM)."
-            : "Assign only to an active employee in one of your regions. QC cannot receive SIMs.",
-      },
+      { message: "Assign only to an active employee in one of your regions. QC cannot receive SIMs." },
       { status: 400 }
     );
   }

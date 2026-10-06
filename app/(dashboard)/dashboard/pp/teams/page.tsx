@@ -136,7 +136,7 @@ export default async function PpTeamsPage() {
         {showTeamLeaveLink ? (
           <p className="mt-3">
             <Link href="/dashboard/pp/leaves" className="text-sm font-medium text-teal-800 underline hover:text-teal-950">
-              Team leave requests →
+              Leave approvals →
             </Link>
           </p>
         ) : null}

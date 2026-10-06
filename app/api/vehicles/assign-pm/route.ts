@@ -2,7 +2,6 @@ import { getDataClient } from "@/lib/supabase/server";
 import { getRequestAuth } from "@/lib/supabase/request-auth";
 import { NextResponse } from "next/server";
 import {
-  targetEmployeeIsOnPmTeam,
   targetEmployeeIsInPmRegionScope,
   loadPmScopeIds,
 } from "@/lib/pm-team-assignees";
@@ -10,14 +9,13 @@ import { VEHICLE_ASSIGNEE_ROLES, VEHICLE_ASSIGNEE_ROLES_LABEL } from "@/lib/empl
 import { upsertPendingReceipts } from "@/lib/resource-receipts";
 import { dispatchNotifications } from "@/lib/notifications/dispatch-notifications";
 
-/** PM assigns available vehicles. Body `assignment_mode`: use `region` (default) for drivers in PM regions; `team` is legacy. */
+/** PM assigns available vehicles to drivers in PM regions. */
 export async function POST(req: Request) {
   const auth = await getRequestAuth(req);
   if (!auth) return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
   const session = auth.session;
 
   const body = await req.json().catch(() => ({}));
-  const assignmentMode: "team" | "region" = body.assignment_mode === "team" ? "team" : "region";
   const vehicleIds = Array.isArray(body.vehicle_ids) ? body.vehicle_ids.filter((id: unknown) => typeof id === "string") : [];
   const employeeId = typeof body.employee_id === "string" ? body.employee_id.trim() : "";
   if (!employeeId || vehicleIds.length === 0) {
@@ -48,20 +46,14 @@ export async function POST(req: Request) {
     .single();
   if (!toEmployee) return NextResponse.json({ message: "Target employee not found" }, { status: 404 });
 
-  const inScope =
-    assignmentMode === "team"
-      ? await targetEmployeeIsOnPmTeam(supabase, pmEmployee, employeeId, session.user.id)
-      : await targetEmployeeIsInPmRegionScope(supabase, pmEmployee, employeeId, session.user.id, {
-          excludeQc: false,
-          requireVehicleRoles: true,
-        });
+  const inScope = await targetEmployeeIsInPmRegionScope(supabase, pmEmployee, employeeId, session.user.id, {
+    excludeQc: false,
+    requireVehicleRoles: true,
+  });
   if (!inScope) {
     return NextResponse.json(
       {
-        message:
-          assignmentMode === "team"
-            ? "Assign only to a team member (DT or Driver/Rigger) on a team in your scope (team region/project in Admin, or project PM)."
-            : `Assign only to ${VEHICLE_ASSIGNEE_ROLES_LABEL} in one of your regions (primary or extra regions from Admin).`,
+        message: `Assign only to ${VEHICLE_ASSIGNEE_ROLES_LABEL} in one of your regions (primary or extra regions from Admin).`,
       },
       { status: 400 }
     );

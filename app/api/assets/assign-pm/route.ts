@@ -2,9 +2,7 @@ import { getDataClient } from "@/lib/supabase/server";
 import { getRequestAuth } from "@/lib/supabase/request-auth";
 import { NextResponse } from "next/server";
 import {
-  targetEmployeeIsOnPmTeam,
   targetEmployeeIsInPmRegionScope,
-  targetEmployeeIsOnAnyTeam,
   targetEmployeeIsGlobalRegionAssignee,
 } from "@/lib/pm-team-assignees";
 import { resolvePortalAdminAssetAssigner } from "@/lib/portal-asset-assign-auth";
@@ -21,7 +19,6 @@ export async function POST(req: Request) {
   const session = auth.session;
 
   const body = await req.json().catch(() => ({}));
-  const assignmentMode: "team" | "region" = body.assignment_mode === "team" ? "team" : "region";
   const assetIds = Array.isArray(body.asset_ids) ? body.asset_ids.filter((id: unknown) => typeof id === "string") : [];
   const employeeId = typeof body.employee_id === "string" ? body.employee_id.trim() : "";
   if (!employeeId || assetIds.length === 0) {
@@ -75,33 +72,23 @@ export async function POST(req: Request) {
 
   let inScope = false;
   if (isPortalAdmin) {
-    inScope =
-      assignmentMode === "team"
-        ? await targetEmployeeIsOnAnyTeam(supabase, employeeId)
-        : await targetEmployeeIsGlobalRegionAssignee(supabase, employeeId, {
-            excludeQc: true,
-            requireVehicleRoles: false,
-          });
+    inScope = await targetEmployeeIsGlobalRegionAssignee(supabase, employeeId, {
+      excludeQc: true,
+      requireVehicleRoles: false,
+    });
   } else if (pmEmployee) {
-    inScope =
-      assignmentMode === "team"
-        ? await targetEmployeeIsOnPmTeam(supabase, pmEmployee, employeeId, session.user.id)
-        : await targetEmployeeIsInPmRegionScope(supabase, pmEmployee, employeeId, session.user.id, {
-            excludeQc: true,
-            requireVehicleRoles: false,
-          });
+    inScope = await targetEmployeeIsInPmRegionScope(supabase, pmEmployee, employeeId, session.user.id, {
+      excludeQc: true,
+      requireVehicleRoles: false,
+    });
   }
 
   if (!inScope) {
     return NextResponse.json(
       {
         message: isPortalAdmin
-          ? assignmentMode === "team"
-            ? "Assign only to a DT or Driver/Rigger on a team."
-            : "Assign only to an active employee (QC cannot receive assets)."
-          : assignmentMode === "team"
-            ? "Assign only to a DT or Driver/Rigger on a team in your scope (team region/project in Admin, or project PM on the project)."
-            : "Assign only to an active employee in one of your regions (primary or extra regions from Admin). QC cannot receive assets.",
+          ? "Assign only to an active employee (QC cannot receive assets)."
+          : "Assign only to an active employee in one of your regions (primary or extra regions from Admin). QC cannot receive assets.",
       },
       { status: 400 }
     );
