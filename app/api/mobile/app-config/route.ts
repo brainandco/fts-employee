@@ -2,20 +2,31 @@ import { NextResponse } from "next/server";
 
 /**
  * Public mobile app update policy.
- * Ops: set env vars when a store release must be installed.
  *
- * MOBILE_APP_LATEST_VERSION   — newest store version (e.g. 1.0.1)
- * MOBILE_APP_MIN_VERSION      — lowest allowed; below this → required update screen
- * MOBILE_UPDATE_MESSAGE         — optional body text on the update page
- * MOBILE_IOS_STORE_URL        — App Store link
- * MOBILE_ANDROID_STORE_URL    — Play Store link
+ * When you publish a store build that must be used, set the minimums to that build.
+ * Example after Android versionCode 17 is live:
+ *   MOBILE_APP_MIN_ANDROID_VERSION_CODE=17
+ *   MOBILE_APP_LATEST_ANDROID_VERSION_CODE=17
+ *   MOBILE_APP_MIN_VERSION=1.0.0
+ *   MOBILE_APP_LATEST_VERSION=1.0.0
+ *
+ * Semver alone is not enough if marketing version stays 1.0.0 across releases.
  */
 export async function GET() {
   const latestVersion = (process.env.MOBILE_APP_LATEST_VERSION ?? "1.0.0").trim() || "1.0.0";
   const minSupportedVersion = (process.env.MOBILE_APP_MIN_VERSION ?? latestVersion).trim() || latestVersion;
+
+  const minAndroidVersionCode = parseInt(process.env.MOBILE_APP_MIN_ANDROID_VERSION_CODE ?? "0", 10) || 0;
+  const latestAndroidVersionCode =
+    parseInt(process.env.MOBILE_APP_LATEST_ANDROID_VERSION_CODE ?? String(minAndroidVersionCode), 10) ||
+    minAndroidVersionCode;
+  const minIosBuildNumber = parseInt(process.env.MOBILE_APP_MIN_IOS_BUILD_NUMBER ?? "0", 10) || 0;
+  const latestIosBuildNumber =
+    parseInt(process.env.MOBILE_APP_LATEST_IOS_BUILD_NUMBER ?? String(minIosBuildNumber), 10) || minIosBuildNumber;
+
   const message =
     (process.env.MOBILE_UPDATE_MESSAGE ?? "").trim() ||
-    "A new version of FTS Employee is required to continue. Please update from the store.";
+    "A newer version of FTS Employee is required. Please update to continue using the app. Your data is safe — this only updates the application.";
 
   const iosStoreUrl =
     (process.env.MOBILE_IOS_STORE_URL ?? "").trim() ||
@@ -27,8 +38,13 @@ export async function GET() {
   return NextResponse.json({
     latestVersion,
     minSupportedVersion,
+    minAndroidVersionCode,
+    latestAndroidVersionCode,
+    minIosBuildNumber,
+    latestIosBuildNumber,
     message,
     iosStoreUrl,
     androidStoreUrl,
+    forceUpdate: true,
   });
 }

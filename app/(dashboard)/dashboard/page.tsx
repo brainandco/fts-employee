@@ -12,6 +12,7 @@ import { ReturnVehicleButton } from "@/components/returns/ReturnVehicleButton";
 import { OdometerSubmitButton } from "@/components/odometer/OdometerSubmitButton";
 import { ReturnSimButton } from "@/components/returns/ReturnSimButton";
 import { MobileAppDownloadCard } from "@/components/mobile/MobileAppDownloadCard";
+import { TEAMS_FEATURE_DISABLED } from "@/lib/teams/feature-flag";
 
 export default async function DashboardPage() {
   const userClient = await createServerSupabaseClient();
@@ -59,7 +60,6 @@ export default async function DashboardPage() {
   const canSubmitOdometer = (myRoles ?? []).some(
     (r) => r.role === "Driver/Rigger" || r.role === "Self DT" || r.role === "QA"
   );
-  const isDtRole = (myRoles ?? []).some((r) => r.role === "DT" || r.role === "Junior DT" || r.role === "Self DT");
 
   const [regionRes, assetsRes, simsRes, assignmentsRes, tasksRes, approvalsRes, regionEmployeesRes, pendingReceiptsRes] = await Promise.all([
     employee.region_id
@@ -104,31 +104,7 @@ export default async function DashboardPage() {
   const allAssignedAssets = assetsRes.data ?? [];
   const assets = allAssignedAssets.filter((a) => !a.is_ehs_tool);
   const ehsAssigned = allAssignedAssets.filter((a) => a.is_ehs_tool);
-  const ehsDtTools = ehsAssigned.filter((a) => a.ehs_wear_role === "dt");
-  const ehsDriverTools = ehsAssigned.filter((a) => a.ehs_wear_role === "driver_rigger");
 
-  const driverIdsForEhs = [...new Set(ehsDriverTools.map((a) => a.ehs_for_employee_id).filter(Boolean) as string[])];
-  const { data: ehsDriverEmps } = driverIdsForEhs.length
-    ? await supabase.from("employees").select("id, full_name").in("id", driverIdsForEhs)
-    : { data: [] };
-  const ehsDriverNameMap = new Map((ehsDriverEmps ?? []).map((e) => [e.id, e.full_name ?? "Driver/Rigger"]));
-
-  let teamDriverName: string | null = null;
-  if (isDtRole) {
-    const { data: myTeam } = await supabase
-      .from("teams")
-      .select("driver_rigger_employee_id")
-      .eq("dt_employee_id", employee.id)
-      .maybeSingle();
-    if (myTeam?.driver_rigger_employee_id) {
-      teamDriverName =
-        ehsDriverNameMap.get(myTeam.driver_rigger_employee_id) ??
-        (
-          await supabase.from("employees").select("full_name").eq("id", myTeam.driver_rigger_employee_id).maybeSingle()
-        ).data?.full_name ??
-        null;
-    }
-  }
   const sims = simsRes.data ?? [];
   const vehicleIds = (assignmentsRes.data ?? []).map((a) => a.vehicle_id);
   const tasks = tasksRes.data ?? [];
@@ -411,7 +387,7 @@ export default async function DashboardPage() {
         </section>
       )}
 
-      {isPp && (
+      {isPp && !TEAMS_FEATURE_DISABLED ? (
         <section className="rounded-2xl border border-teal-200 bg-gradient-to-r from-teal-50 to-cyan-50 p-5 sm:p-6">
           <h2 className="text-lg font-semibold text-zinc-900">Reporting — teams</h2>
           <p className="mt-1 text-sm text-zinc-600">
@@ -434,7 +410,22 @@ export default async function DashboardPage() {
             ) : null}
           </div>
         </section>
-      )}
+      ) : null}
+
+      {isPp && TEAMS_FEATURE_DISABLED && showPpTeamLeaveLink ? (
+        <section className="rounded-2xl border border-teal-200 bg-gradient-to-r from-teal-50 to-cyan-50 p-5 sm:p-6">
+          <h2 className="text-lg font-semibold text-zinc-900">Team leave requests</h2>
+          <p className="mt-1 text-sm text-zinc-600">Review leave requests for people in your reporting scope.</p>
+          <div className="mt-4">
+            <Link
+              href="/dashboard/pp/leaves"
+              className="rounded bg-teal-800 px-4 py-2 text-sm font-medium text-white hover:bg-teal-900"
+            >
+              Open leave requests
+            </Link>
+          </div>
+        </section>
+      ) : null}
 
       <div className="grid gap-6 lg:grid-cols-2">
         {!isQc && (
@@ -446,38 +437,26 @@ export default async function DashboardPage() {
           </section>
         )}
 
-        {isDtRole && !isQc ? (
+        {ehsAssigned.length > 0 && !isQc ? (
           <section className="rounded-2xl border border-orange-200 bg-white p-5 shadow-sm sm:p-6 lg:col-span-2">
             <h2 className="text-lg font-semibold text-zinc-900">EHS tools</h2>
             <p className="mt-1 text-sm text-zinc-600">
-              You are responsible for returns and transfers. Driver/Rigger tools show the team driver name.
+              {isDriverOrSelfDt
+                ? "EHS tools assigned directly to you. Confirm receipt and manage returns from this portal."
+                : "EHS tools currently assigned to you."}
             </p>
-            <div className="mt-4 grid gap-6 md:grid-cols-2">
-              <div className="rounded-xl border border-orange-100 bg-orange-50/40 p-4">
-                <EhsAssignedToolsList title="My DT wear tools" tools={ehsDtTools.map((a) => ({
+            <div className="mt-4 rounded-xl border border-orange-100 bg-orange-50/40 p-4">
+              <EhsAssignedToolsList
+                title="My EHS tools"
+                tools={ehsAssigned.map((a) => ({
                   id: a.id,
                   asset_id: a.asset_id,
                   name: a.name,
                   en_code: a.en_code,
                   status: a.status,
-                }))} emptyLabel="No DT wear EHS tools assigned." />
-              </div>
-              <div className="rounded-xl border border-sky-100 bg-sky-50/40 p-4">
-                <EhsAssignedToolsList
-                  title={`Team Driver/Rigger wear tools${teamDriverName ? ` — ${teamDriverName}` : ""}`}
-                  tools={ehsDriverTools.map((a) => ({
-                    id: a.id,
-                    asset_id: a.asset_id,
-                    name: a.name,
-                    en_code: a.en_code,
-                    status: a.status,
-                    wornByLabel:
-                      (a.ehs_for_employee_id ? ehsDriverNameMap.get(a.ehs_for_employee_id) : null) ??
-                      teamDriverName,
-                  }))}
-                  emptyLabel="No driver/rigger EHS tools on your team."
-                />
-              </div>
+                }))}
+                emptyLabel="No EHS tools assigned."
+              />
             </div>
           </section>
         ) : null}

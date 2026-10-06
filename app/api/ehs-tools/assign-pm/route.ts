@@ -1,32 +1,59 @@
 import { getDataClient } from "@/lib/supabase/server";
 import { getRequestAuth } from "@/lib/supabase/request-auth";
 import { NextResponse } from "next/server";
-import { targetEmployeeIsOnPmTeam, loadPmScopeIds } from "@/lib/pm-team-assignees";
+import { loadPmScopeIds } from "@/lib/pm-team-assignees";
 import { resolvePortalAdminAssetAssigner } from "@/lib/portal-asset-assign-auth";
 import { upsertPendingReceipts } from "@/lib/resource-receipts";
 import { dispatchNotifications } from "@/lib/notifications/dispatch-notifications";
+import { DRIVER_RIGGER_ROLE } from "@/lib/auth/driver-iqama";
 
-async function resolveDriverForDt(
+const EHS_ASSIGNEE_ROLES = [DRIVER_RIGGER_ROLE, "Self DT"] as const;
+
+async function assertDriverRigger(
   supabase: Awaited<ReturnType<typeof getDataClient>>,
-  dtEmployeeId: string,
-  driverEmployeeId: string | null
+  employeeId: string
 ) {
-  const { data: team } = await supabase
-    .from("teams")
-    .select("id, driver_rigger_employee_id")
-    .eq("dt_employee_id", dtEmployeeId)
-    .maybeSingle();
-
-  if (!team?.driver_rigger_employee_id) {
-    return { ok: false as const, message: "This DT has no Driver/Rigger on their team." };
+  const { data: roles } = await supabase.from("employee_roles").select("role").eq("employee_id", employeeId);
+  const set = new Set((roles ?? []).map((r) => r.role as string));
+  if (!set.has(DRIVER_RIGGER_ROLE) && !set.has("Self DT")) {
+    return {
+      ok: false as const,
+      message: "EHS tools must be assigned directly to a Driver/Rigger (or Self DT).",
+    };
   }
-  if (driverEmployeeId && driverEmployeeId !== team.driver_rigger_employee_id) {
-    return { ok: false as const, message: "Selected driver does not belong to this DT's team." };
-  }
-  return { ok: true as const, driverId: team.driver_rigger_employee_id as string };
+  return { ok: true as const };
 }
 
-/** POST — PM or portal admin assigns EHS tools to a team DT. */
+async function loadEhsDriverOptions(
+  supabase: Awaited<ReturnType<typeof getDataClient>>,
+  opts: { regionIds?: string[]; excludeEmployeeId?: string | null }
+) {
+  const { data: roleRows } = await supabase
+    .from("employee_roles")
+    .select("employee_id, role")
+    .in("role", [...EHS_ASSIGNEE_ROLES]);
+
+  const empIds = [...new Set((roleRows ?? []).map((r) => r.employee_id as string))];
+  if (empIds.length === 0) return [] as { id: string; full_name: string; region_id: string | null }[];
+
+  let q = supabase
+    .from("employees")
+    .select("id, full_name, email, region_id, status")
+    .in("id", empIds)
+    .eq("status", "ACTIVE");
+
+  if (opts.regionIds?.length) q = q.in("region_id", opts.regionIds);
+  if (opts.excludeEmployeeId) q = q.neq("id", opts.excludeEmployeeId);
+
+  const { data: emps } = await q.order("full_name");
+  return (emps ?? []).map((e) => ({
+    id: e.id as string,
+    full_name: ((e.full_name as string | null) ?? (e.email as string | null) ?? "Driver/Rigger").trim(),
+    region_id: (e.region_id as string | null) ?? null,
+  }));
+}
+
+/** POST — PM or portal admin assigns EHS tools directly to a Driver/Rigger. */
 export async function POST(req: Request) {
   const auth = await getRequestAuth(req);
   if (!auth) return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
@@ -34,19 +61,15 @@ export async function POST(req: Request) {
 
   const body = await req.json().catch(() => ({}));
   const assetIds = Array.isArray(body.asset_ids) ? body.asset_ids.filter((id: unknown) => typeof id === "string") : [];
-  const dtEmployeeId = typeof body.dt_employee_id === "string" ? body.dt_employee_id.trim() : "";
-  const assignWearRole =
-    body.assign_wear_role === "driver_rigger" ? "driver_rigger" : body.assign_wear_role === "dt" ? "dt" : "";
-  const driverEmployeeId =
-    typeof body.driver_employee_id === "string" && body.driver_employee_id.trim()
-      ? body.driver_employee_id.trim()
-      : null;
+  const employeeId =
+    typeof body.employee_id === "string"
+      ? body.employee_id.trim()
+      : typeof body.driver_employee_id === "string"
+        ? body.driver_employee_id.trim()
+        : "";
 
-  if (!dtEmployeeId || assetIds.length === 0) {
-    return NextResponse.json({ message: "asset_ids and dt_employee_id required" }, { status: 400 });
-  }
-  if (!assignWearRole) {
-    return NextResponse.json({ message: "assign_wear_role (dt|driver_rigger) required" }, { status: 400 });
+  if (!employeeId || assetIds.length === 0) {
+    return NextResponse.json({ message: "asset_ids and employee_id (Driver/Rigger) required" }, { status: 400 });
   }
 
   const supabase = await getDataClient();
@@ -59,7 +82,12 @@ export async function POST(req: Request) {
     .maybeSingle();
 
   const { data: pmRole } = pmEmployee
-    ? await supabase.from("employee_roles").select("role").eq("employee_id", pmEmployee.id).eq("role", "Project Manager").maybeSingle()
+    ? await supabase
+        .from("employee_roles")
+        .select("role")
+        .eq("employee_id", pmEmployee.id)
+        .eq("role", "Project Manager")
+        .maybeSingle()
     : { data: null };
 
   const isPm = !!(pmEmployee && pmRole);
@@ -69,77 +97,90 @@ export async function POST(req: Request) {
     return NextResponse.json({ message: "Only Project Managers or portal admins can assign EHS tools." }, { status: 403 });
   }
 
+  const roleCheck = await assertDriverRigger(supabase, employeeId);
+  if (!roleCheck.ok) return NextResponse.json({ message: roleCheck.message }, { status: 400 });
+
   if (isPm && pmEmployee) {
-    const onTeam = await targetEmployeeIsOnPmTeam(supabase, pmEmployee, dtEmployeeId, session.user.id);
-    if (!onTeam) {
-      return NextResponse.json({ message: "Assign only to a DT on a team in your PM scope." }, { status: 400 });
+    const { allowedRegionIds } = await loadPmScopeIds(supabase, pmEmployee, session.user.id);
+    const drivers = await loadEhsDriverOptions(supabase, {
+      regionIds: allowedRegionIds,
+      excludeEmployeeId: pmEmployee.id,
+    });
+    if (!drivers.some((d) => d.id === employeeId)) {
+      return NextResponse.json(
+        { message: "Assign only to a Driver/Rigger in your PM region scope." },
+        { status: 400 }
+      );
     }
   }
 
-  const { data: dtEmployee } = await supabase.from("employees").select("id, region_id, email, full_name").eq("id", dtEmployeeId).maybeSingle();
-  if (!dtEmployee) return NextResponse.json({ message: "DT not found" }, { status: 404 });
+  const { data: driver } = await supabase
+    .from("employees")
+    .select("id, region_id, email, full_name, status")
+    .eq("id", employeeId)
+    .maybeSingle();
+  if (!driver || driver.status !== "ACTIVE") {
+    return NextResponse.json({ message: "Driver/Rigger not found or inactive." }, { status: 404 });
+  }
+  if (!driver.region_id) {
+    return NextResponse.json(
+      { message: "Driver/Rigger needs a primary region before EHS tools can be assigned." },
+      { status: 400 }
+    );
+  }
 
   const { data: assets } = await supabase
     .from("assets")
-    .select("id, status, assigned_to_employee_id, ehs_wear_role, is_ehs_tool")
+    .select("id, status, assigned_to_employee_id, is_ehs_tool")
     .in("id", assetIds)
     .eq("is_ehs_tool", true)
     .eq("status", "Available");
 
   const available = (assets ?? []).filter((a) => !a.assigned_to_employee_id);
-
-  let teamDriverId: string | null = null;
-  if (assignWearRole === "driver_rigger") {
-    const driverResolved = await resolveDriverForDt(supabase, dtEmployeeId, driverEmployeeId);
-    if (!driverResolved.ok) return NextResponse.json({ message: driverResolved.message }, { status: 400 });
-    teamDriverId = driverResolved.driverId;
-  }
-
   const now = new Date().toISOString();
-  const notesTag = isPortalAdmin ? "EHS assigned by admin from employee portal" : "EHS assigned by PM from employee portal";
+  const notesTag = isPortalAdmin
+    ? "EHS assigned by admin from employee portal (direct to driver)"
+    : "EHS assigned by PM from employee portal (direct to driver)";
   const assignedIds: string[] = [];
 
   for (const row of available) {
     await supabase
       .from("assets")
       .update({
-        assigned_to_employee_id: dtEmployeeId,
-        assigned_region_id: dtEmployee.region_id,
+        assigned_to_employee_id: employeeId,
+        assigned_region_id: driver.region_id,
         status: "Assigned",
         assigned_by: session.user.id,
         assigned_at: now,
-        ehs_wear_role: assignWearRole,
-        ehs_for_employee_id: assignWearRole === "driver_rigger" ? teamDriverId : null,
+        ehs_wear_role: "driver_rigger",
+        ehs_for_employee_id: null,
       })
       .eq("id", row.id);
 
     assignedIds.push(row.id as string);
     await supabase.from("asset_assignment_history").insert({
       asset_id: row.id,
-      to_employee_id: dtEmployeeId,
+      to_employee_id: employeeId,
       assigned_by_user_id: session.user.id,
-      notes:
-        assignWearRole === "driver_rigger" && teamDriverId
-          ? `${notesTag} — driver/rigger tool for team driver`
-          : `${notesTag} — DT wear tool`,
+      notes: notesTag,
     });
   }
 
   if (assignedIds.length > 0) {
     await upsertPendingReceipts(supabase, {
-      employeeId: dtEmployeeId,
+      employeeId,
       assignedByUserId: session.user.id,
       items: assignedIds.map((rid) => ({ resourceType: "asset" as const, resourceId: rid })),
     });
 
-    if (dtEmployee.email) {
-      const { data: recipient } = await supabase.from("users_profile").select("id").eq("email", dtEmployee.email).maybeSingle();
+    if (driver.email) {
+      const { data: recipient } = await supabase.from("users_profile").select("id").eq("email", driver.email).maybeSingle();
       if (recipient?.id) {
         await dispatchNotifications(supabase, [
           {
             recipient_user_id: recipient.id,
             title: "Confirm receipt: EHS tools assigned",
-            body: `${assignedIds.length} EHS tool(s) were assigned to you (DT). Confirm receipt when received.`,
+            body: `${assignedIds.length} EHS tool(s) were assigned to you. Confirm receipt when received.`,
             category: "assignment_receipt",
             link: "/dashboard/receipts",
             meta: { asset_ids: assignedIds, assigned_by: session.user.id },
@@ -152,67 +193,48 @@ export async function POST(req: Request) {
   return NextResponse.json({
     assigned: assignedIds.length,
     skipped: assetIds.length - assignedIds.length,
-    message: assignedIds.length ? `Assigned ${assignedIds.length} EHS tool(s) to DT.` : "No EHS tools were available.",
+    message: assignedIds.length
+      ? `Assigned ${assignedIds.length} EHS tool(s) to Driver/Rigger.`
+      : "No EHS tools were available.",
   });
 }
 
-/** GET teams in PM scope for assign UI */
+/** GET Driver/Riggers in PM/admin scope for EHS assign UI — no teams. */
 export async function GET(req: Request) {
   const auth = await getRequestAuth(req);
   if (!auth) return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
 
   const supabase = await getDataClient();
   const email = (auth.session.user.email ?? "").trim();
-  const { data: pmEmployee } = await supabase.from("employees").select("id, region_id, project_id").eq("email", email).maybeSingle();
+  const { data: pmEmployee } = await supabase
+    .from("employees")
+    .select("id, region_id, project_id")
+    .eq("email", email)
+    .maybeSingle();
   const { data: pmRole } = pmEmployee
-    ? await supabase.from("employee_roles").select("role").eq("employee_id", pmEmployee.id).eq("role", "Project Manager").maybeSingle()
+    ? await supabase
+        .from("employee_roles")
+        .select("role")
+        .eq("employee_id", pmEmployee.id)
+        .eq("role", "Project Manager")
+        .maybeSingle()
     : { data: null };
   const isPm = !!(pmEmployee && pmRole);
   const isPortalAdmin = await resolvePortalAdminAssetAssigner(supabase, auth.session.user.id, email);
   if (!isPm && !isPortalAdmin) return NextResponse.json({ message: "Forbidden" }, { status: 403 });
 
-  let teamsQuery = supabase
-    .from("teams")
-    .select("id, name, region_id, dt_employee_id, driver_rigger_employee_id")
-    .not("dt_employee_id", "is", null)
-    .order("name");
-
-  if (isPm && pmEmployee) {
-    const { allowedRegionIds } = await loadPmScopeIds(supabase, pmEmployee, auth.session.user.id);
-    if (allowedRegionIds.length > 0) teamsQuery = teamsQuery.in("region_id", allowedRegionIds);
+  if (isPortalAdmin && !isPm) {
+    const drivers = await loadEhsDriverOptions(supabase, {});
+    return NextResponse.json({ drivers });
   }
 
-  const { data: teamsRaw } = await teamsQuery;
-  const empIds = [
-    ...new Set(
-      (teamsRaw ?? []).flatMap((t) => [t.dt_employee_id, t.driver_rigger_employee_id].filter(Boolean) as string[])
-    ),
-  ];
-  const { data: emps } = empIds.length
-    ? await supabase.from("employees").select("id, full_name, email, status").in("id", empIds)
-    : { data: [] };
-  const empMap = new Map(
-    (emps ?? []).map((e) => [e.id, { full_name: (e.full_name ?? e.email ?? "—").trim() || "—", status: e.status }])
-  );
+  if (!pmEmployee) return NextResponse.json({ drivers: [] });
 
-  const teams = (teamsRaw ?? [])
-    .filter((t) => {
-      const dt = t.dt_employee_id ? empMap.get(t.dt_employee_id as string) : null;
-      return dt && dt.status === "ACTIVE";
-    })
-    .map((t) => {
-      const dt = empMap.get(t.dt_employee_id as string)!;
-      const driver = t.driver_rigger_employee_id ? empMap.get(t.driver_rigger_employee_id as string) : null;
-      return {
-        teamId: t.id as string,
-        teamName: (t.name as string)?.trim() || "Team",
-        dt: { id: t.dt_employee_id as string, full_name: dt.full_name },
-        driver:
-          driver && driver.status === "ACTIVE"
-            ? { id: t.driver_rigger_employee_id as string, full_name: driver.full_name }
-            : null,
-      };
-    });
+  const { allowedRegionIds } = await loadPmScopeIds(supabase, pmEmployee, auth.session.user.id);
+  const drivers = await loadEhsDriverOptions(supabase, {
+    regionIds: allowedRegionIds,
+    excludeEmployeeId: pmEmployee.id,
+  });
 
-  return NextResponse.json({ teams });
+  return NextResponse.json({ drivers });
 }

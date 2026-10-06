@@ -6,6 +6,7 @@ import { assetCategoryRequiresConditionPhotos } from "@/lib/assets/asset-conditi
 import { hasMinimumPhotos, parseImageUrlArray } from "@/lib/resource-photos";
 import { dispatchNotifications } from "@/lib/notifications/dispatch-notifications";
 import { NextResponse } from "next/server";
+import { TEAMS_FEATURE_DISABLED, teamsFeatureDisabledJson } from "@/lib/teams/feature-flag";
 type TransferType = "vehicle_swap" | "vehicle_replacement" | "drive_swap" | "asset_transfer";
 
 const REQUEST_TYPES: TransferType[] = ["vehicle_swap", "vehicle_replacement", "drive_swap", "asset_transfer"];
@@ -82,6 +83,9 @@ export async function POST(req: Request) {
     return NextResponse.json({ message: "Valid request_type and request_reason are required" }, { status: 400 });
   }
   const request_type = request_type_input as TransferType;
+  if (TEAMS_FEATURE_DISABLED && request_type === "drive_swap") {
+    return NextResponse.json(teamsFeatureDisabledJson(), { status: 410 });
+  }
 
   const supabase = await getDataClient();
   const email = (session.user.email ?? "").trim().toLowerCase();

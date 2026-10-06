@@ -3,6 +3,7 @@ import { getRequestAuth } from "@/lib/supabase/request-auth";
 import { getPmReviewerScopeRegionIds } from "@/lib/pm-team-assignees";
 import { dispatchNotifications } from "@/lib/notifications/dispatch-notifications";
 import { NextResponse } from "next/server";
+import { TEAMS_FEATURE_DISABLED, teamsFeatureDisabledJson } from "@/lib/teams/feature-flag";
 
 type PendingTransfer = {
   id: string;
@@ -154,6 +155,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     }
 
     if (requestData.request_type === "drive_swap") {
+      if (TEAMS_FEATURE_DISABLED) return NextResponse.json(teamsFeatureDisabledJson(), { status: 410 });
       const targetEmployeeId = requestData.target_employee_id;
       if (!targetEmployeeId) return NextResponse.json({ message: "Target driver missing for drive swap" }, { status: 400 });
 

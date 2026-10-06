@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import { PpTeamMemberTabs, type PpTeamMemberTab } from "@/components/pp/PpTeamMemberTabs";
 import { canAccessPpTeamLeaveRequests, hasReportingPortalRole } from "@/lib/pp/auth";
+import { TEAMS_FEATURE_DISABLED } from "@/lib/teams/feature-flag";
 
 type AssetRow = {
   id: string;
@@ -15,6 +16,7 @@ type AssetRow = {
 };
 
 export default async function PpTeamsPage() {
+  if (TEAMS_FEATURE_DISABLED) redirect("/dashboard");
   const userClient = await createServerSupabaseClient();
   const {
     data: { session },

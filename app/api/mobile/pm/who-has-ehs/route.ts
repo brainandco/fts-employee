@@ -1,10 +1,10 @@
 import { NextResponse } from "next/server";
-import { loadTeamEhsAssignments } from "@/lib/assets/load-team-ehs-assignments";
+import { loadDriverEhsAssignments } from "@/lib/assets/load-driver-ehs-assignments";
 import { loadPmScopeIds } from "@/lib/pm-team-assignees";
 import { requirePmMobileContext } from "@/lib/mobile/require-pm-mobile";
 import { getRequestAuth } from "@/lib/supabase/request-auth";
 
-/** GET — team-wise EHS who-has for PM scope (Bearer). Empty teams when none assigned — never hard-fail on empty data. */
+/** GET — driver-wise EHS who-has for PM scope (Bearer). `teams` kept empty for older clients. */
 export async function GET(req: Request) {
   try {
     const auth = await getRequestAuth(req);
@@ -33,13 +33,13 @@ export async function GET(req: Request) {
     }
 
     if (allowedRegionIds.length === 0) {
-      return NextResponse.json({ scopeLabel, teams: [] });
+      return NextResponse.json({ scopeLabel, drivers: [], teams: [] });
     }
 
-    const teams = await loadTeamEhsAssignments(supabase, { regionIds: allowedRegionIds });
-    return NextResponse.json({ scopeLabel, teams: teams ?? [] });
+    const drivers = await loadDriverEhsAssignments(supabase, { regionIds: allowedRegionIds });
+    return NextResponse.json({ scopeLabel, drivers: drivers ?? [], teams: [] });
   } catch (err) {
     console.error("[mobile/pm/who-has-ehs]", err);
-    return NextResponse.json({ scopeLabel: "", teams: [] });
+    return NextResponse.json({ scopeLabel: "", drivers: [], teams: [] });
   }
 }
