@@ -129,48 +129,31 @@ export default async function PmAssignAssetPage({
     ehsAssetsQuery = ehsAssetsQuery.or(orParts.join(","));
   }
 
-  let teamsQuery = supabase
-    .from("teams")
-    .select("id, name, dt_employee_id, driver_rigger_employee_id")
-    .not("dt_employee_id", "is", null)
-    .order("name");
+  const { data: ehsAssets } = await ehsAssetsQuery;
+
+  const { data: roleRows } = await supabase
+    .from("employee_roles")
+    .select("employee_id, role")
+    .in("role", ["Driver/Rigger", "Self DT"]);
+  const driverIds = [...new Set((roleRows ?? []).map((r) => r.employee_id as string))];
+
+  let driversQuery = supabase
+    .from("employees")
+    .select("id, full_name, email, region_id, status")
+    .in("id", driverIds.length ? driverIds : ["00000000-0000-0000-0000-000000000000"])
+    .eq("status", "ACTIVE")
+    .order("full_name");
 
   if (isPm && allowedRegionIds.length > 0) {
-    teamsQuery = teamsQuery.in("region_id", allowedRegionIds);
+    driversQuery = driversQuery.in("region_id", allowedRegionIds);
   }
 
-  const [{ data: ehsAssets }, { data: teamsRaw }] = await Promise.all([ehsAssetsQuery, teamsQuery]);
-
-  const teamEmpIds = [
-    ...new Set(
-      (teamsRaw ?? []).flatMap((t) => [t.dt_employee_id, t.driver_rigger_employee_id].filter(Boolean) as string[])
-    ),
-  ];
-  const { data: teamEmps } = teamEmpIds.length
-    ? await supabase.from("employees").select("id, full_name, email, status").in("id", teamEmpIds)
-    : { data: [] };
-  const empMap = new Map(
-    (teamEmps ?? []).map((e) => [e.id, { full_name: (e.full_name ?? e.email ?? "—").trim() || "—", status: e.status }])
-  );
-
-  const dtTeams = (teamsRaw ?? [])
-    .filter((t) => {
-      const dt = t.dt_employee_id ? empMap.get(t.dt_employee_id as string) : null;
-      return dt && dt.status === "ACTIVE";
-    })
-    .map((t) => {
-      const dt = empMap.get(t.dt_employee_id as string)!;
-      const driver = t.driver_rigger_employee_id ? empMap.get(t.driver_rigger_employee_id as string) : null;
-      return {
-        teamId: t.id as string,
-        teamName: (t.name as string)?.trim() || "Team",
-        dt: { id: t.dt_employee_id as string, full_name: dt.full_name },
-        driver:
-          driver && driver.status === "ACTIVE"
-            ? { id: t.driver_rigger_employee_id as string, full_name: driver.full_name }
-            : null,
-      };
-    });
+  const { data: driverEmps } = await driversQuery;
+  const drivers = (driverEmps ?? []).map((e) => ({
+    id: e.id as string,
+    full_name: ((e.full_name as string | null) ?? (e.email as string | null) ?? "Driver/Rigger").trim(),
+    region_id: (e.region_id as string | null) ?? null,
+  }));
 
   const viewerRole = isPortalAdmin ? "admin" : "pm";
 
@@ -202,7 +185,7 @@ export default async function PmAssignAssetPage({
           <h1 className="text-2xl font-semibold text-zinc-900">Assign assets & EHS tools</h1>
           <p className="mt-1 text-sm text-zinc-600">
             {tab === "ehs"
-              ? "Assign EHS tools to a team DT. Choose DT or Driver/Rigger wear when assigning."
+              ? "Assign EHS tools directly to a Driver/Rigger. Receipt confirmation sits with that employee."
               : viewerRole === "admin"
                 ? "Assign fleet assets to an eligible employee by region (QC excluded)."
                 : "Assign fleet assets to active employees in your regions (QC excluded)."}
@@ -211,7 +194,7 @@ export default async function PmAssignAssetPage({
         <div className="mt-4 flex flex-wrap items-center gap-2">
           <span className="rounded-full bg-white px-3 py-1 text-xs font-medium text-zinc-700 ring-1 ring-zinc-200">
             {tab === "ehs"
-              ? `Teams: ${dtTeams.length} · Available EHS: ${(ehsAssets ?? []).length}`
+              ? `Driver/Riggers: ${drivers.length} · Available EHS: ${(ehsAssets ?? []).length}`
               : `Eligible: ${assignees.length} · Available fleet: ${assets.length}`}
           </span>
           {viewerRole === "pm" ? (
@@ -248,7 +231,7 @@ export default async function PmAssignAssetPage({
             viewerRole={viewerRole}
           />
         ) : (
-          <PmAssignEhsToolsClient assets={ehsAssets ?? []} dtTeams={dtTeams} />
+          <PmAssignEhsToolsClient assets={ehsAssets ?? []} drivers={drivers} />
         )}
       </div>
     </div>

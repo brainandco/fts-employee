@@ -2,7 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createServerSupabaseClient, getDataClient } from "@/lib/supabase/server";
 import { loadAssetReceiptStatusMap, loadSimReceiptStatusMap } from "@/lib/assets/asset-receipt-status";
-import { loadTeamEhsAssignments } from "@/lib/assets/load-team-ehs-assignments";
+import { loadDriverEhsAssignments } from "@/lib/assets/load-driver-ehs-assignments";
 import { loadPmScopeIds } from "@/lib/pm-team-assignees";
 import {
   RegionEmployeesWithAssetsClient,
@@ -10,7 +10,7 @@ import {
   type AssetLine,
   type SimLine,
 } from "./RegionEmployeesWithAssetsClient";
-import { TeamEhsToolsPanel } from "@/components/ehs/TeamEhsToolsPanel";
+import { DriverEhsToolsPanel } from "@/components/ehs/DriverEhsToolsPanel";
 import { FleetEhsSectionTabs } from "@/components/ui/FleetEhsSectionTabs";
 import { parseFleetEhsTab } from "@/lib/assets/fleet-ehs-tabs";
 
@@ -165,7 +165,7 @@ export default async function RegionEmployeesWithAssetsPage({
     ? `${regionRow?.name ?? "—"}${regionRow?.code ? ` · ${regionRow.code}` : ""}`
     : "No region (unscoped roster)";
 
-  let ehsTeamBlocks: Awaited<ReturnType<typeof loadTeamEhsAssignments>> = [];
+  let ehsDriverBlocks: Awaited<ReturnType<typeof loadDriverEhsAssignments>> = [];
   if (isPm) {
     const { allowedRegionIds } = await loadPmScopeIds(
       supabase,
@@ -173,10 +173,10 @@ export default async function RegionEmployeesWithAssetsPage({
       session.user.id
     );
     if (allowedRegionIds.length > 0) {
-      ehsTeamBlocks = await loadTeamEhsAssignments(supabase, { regionIds: allowedRegionIds });
+      ehsDriverBlocks = await loadDriverEhsAssignments(supabase, { regionIds: allowedRegionIds });
     }
   } else if (me.region_id) {
-    ehsTeamBlocks = await loadTeamEhsAssignments(supabase, { regionId: me.region_id });
+    ehsDriverBlocks = await loadDriverEhsAssignments(supabase, { regionId: me.region_id });
   }
 
   return (
@@ -191,7 +191,7 @@ export default async function RegionEmployeesWithAssetsPage({
             <h1 className="mt-1 text-3xl font-bold tracking-tight text-zinc-900">Who has assets & EHS tools</h1>
             <p className="mt-2 max-w-2xl text-sm leading-relaxed text-zinc-600">
               {tab === "ehs"
-                ? "EHS tools by team: DT wear and Driver/Rigger wear (held by DT, linked to team driver)."
+                ? "EHS tools held by each Driver/Rigger (direct custody). Receipt confirmation is on that employee."
                 : (
                   <>
                     Active colleagues in <span className="font-semibold text-zinc-800">{regionLabel}</span> who currently hold
@@ -207,7 +207,7 @@ export default async function RegionEmployeesWithAssetsPage({
         activeTab={tab}
         basePath="/dashboard/region-employees-assets"
         fleetCount={withAssetsList.length}
-        ehsCount={ehsTeamBlocks.length}
+        ehsCount={ehsDriverBlocks.length}
       />
 
       <div className="rounded-b-xl border border-t-0 border-zinc-200 bg-white p-4 sm:p-6">
@@ -218,7 +218,7 @@ export default async function RegionEmployeesWithAssetsPage({
             withoutCount={withoutCount}
           />
         ) : (
-          <TeamEhsToolsPanel teams={ehsTeamBlocks} />
+          <DriverEhsToolsPanel drivers={ehsDriverBlocks} />
         )}
       </div>
     </div>

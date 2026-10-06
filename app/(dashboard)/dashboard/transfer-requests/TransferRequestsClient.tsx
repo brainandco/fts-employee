@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { ReturnHandInPhotos } from "@/components/assets/ReturnHandInPhotos";
 import { assetCategoryRequiresConditionPhotos } from "@/lib/assets/asset-condition-photos";
 import { MIN_RESOURCE_PHOTOS } from "@/lib/resource-photos";
+import { TEAMS_FEATURE_DISABLED } from "@/lib/teams/feature-flag";
 
 type RequestType = "vehicle_swap" | "vehicle_replacement" | "drive_swap" | "asset_transfer";
 type TransferRequest = {
@@ -67,7 +68,10 @@ export function TransferRequestsClient({
   const router = useRouter();
   const allowedRequestTypes = useMemo<RequestType[]>(() => {
     const types: RequestType[] = [];
-    if (canRequestVehicleFlows) types.push("vehicle_swap", "vehicle_replacement", "drive_swap");
+    if (canRequestVehicleFlows) {
+      types.push("vehicle_swap", "vehicle_replacement");
+      if (!TEAMS_FEATURE_DISABLED) types.push("drive_swap");
+    }
     if (canRequestAssetTransfer) types.push("asset_transfer");
     return types;
   }, [canRequestAssetTransfer, canRequestVehicleFlows]);

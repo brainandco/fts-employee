@@ -1,10 +1,11 @@
 import { NextResponse } from "next/server";
 import { getEhsToolType } from "@/lib/assets/ehs-tool-catalog";
+import { DRIVER_RIGGER_ROLE } from "@/lib/auth/driver-iqama";
 import { loadPmScopeIds } from "@/lib/pm-team-assignees";
 import { requirePmMobileContext } from "@/lib/mobile/require-pm-mobile";
 import { getRequestAuth } from "@/lib/supabase/request-auth";
 
-/** GET — available EHS tools + teams with DT for PM assign (Bearer). Empty arrays when none — do not hard-fail. */
+/** GET — available EHS tools + Driver/Riggers for PM assign (Bearer). `teams` kept empty for older clients. */
 export async function GET(req: Request) {
   try {
     const auth = await getRequestAuth(req);
@@ -47,57 +48,36 @@ export async function GET(req: Request) {
         };
       });
 
-    let teamsQuery = supabase
-      .from("teams")
-      .select("id, name, region_id, dt_employee_id, driver_rigger_employee_id")
-      .not("dt_employee_id", "is", null)
-      .order("name");
+    const { data: roleRows } = await supabase
+      .from("employee_roles")
+      .select("employee_id, role")
+      .in("role", [DRIVER_RIGGER_ROLE, "Self DT"]);
 
-    if (allowedRegionIds.length > 0) {
-      teamsQuery = teamsQuery.in("region_id", allowedRegionIds);
+    const empIds = [...new Set((roleRows ?? []).map((r) => r.employee_id as string))];
+    let drivers: { id: string; full_name: string; region_id: string | null }[] = [];
+
+    if (empIds.length > 0) {
+      let empQuery = supabase
+        .from("employees")
+        .select("id, full_name, email, region_id, status")
+        .in("id", empIds)
+        .eq("status", "ACTIVE");
+
+      if (allowedRegionIds.length > 0) {
+        empQuery = empQuery.in("region_id", allowedRegionIds);
+      }
+
+      const { data: emps } = await empQuery.order("full_name");
+      drivers = (emps ?? []).map((e) => ({
+        id: e.id as string,
+        full_name: ((e.full_name as string | null) ?? (e.email as string | null) ?? "Driver/Rigger").trim(),
+        region_id: (e.region_id as string | null) ?? null,
+      }));
     }
 
-    const { data: teamsRaw } = await teamsQuery;
-    const empIds = [
-      ...new Set(
-        (teamsRaw ?? []).flatMap((t) => [t.dt_employee_id, t.driver_rigger_employee_id].filter(Boolean) as string[])
-      ),
-    ];
-    const { data: emps } = empIds.length
-      ? await supabase.from("employees").select("id, full_name, email, status").in("id", empIds)
-      : { data: [] };
-    const empMap = new Map(
-      (emps ?? []).map((e) => [
-        e.id as string,
-        {
-          full_name: ((e.full_name as string | null) ?? (e.email as string | null) ?? "—").trim() || "—",
-          status: e.status as string,
-        },
-      ])
-    );
-
-    const teams = (teamsRaw ?? [])
-      .filter((t) => {
-        const dt = t.dt_employee_id ? empMap.get(t.dt_employee_id as string) : null;
-        return dt && dt.status === "ACTIVE";
-      })
-      .map((t) => {
-        const dt = empMap.get(t.dt_employee_id as string)!;
-        const driver = t.driver_rigger_employee_id ? empMap.get(t.driver_rigger_employee_id as string) : null;
-        return {
-          teamId: t.id as string,
-          teamName: ((t.name as string) ?? "").trim() || "Team",
-          dt: { id: t.dt_employee_id as string, full_name: dt.full_name },
-          driver:
-            driver && driver.status === "ACTIVE"
-              ? { id: t.driver_rigger_employee_id as string, full_name: driver.full_name }
-              : null,
-        };
-      });
-
-    return NextResponse.json({ assets, teams });
+    return NextResponse.json({ assets, drivers, teams: [] });
   } catch (err) {
     console.error("[mobile/pm/assign-ehs]", err);
-    return NextResponse.json({ assets: [], teams: [] });
+    return NextResponse.json({ assets: [], drivers: [], teams: [] });
   }
 }

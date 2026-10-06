@@ -6,6 +6,7 @@ import { EmployeePortalChrome } from "@/components/layout/EmployeePortalChrome";
 import type { EmployeeNavSection } from "@/components/layout/EmployeeSidebar";
 import { canAccessPpTeamLeaveRequests, hasReportingPortalRole } from "@/lib/pp/auth";
 import { createServerSupabaseClient, getDataClient } from "@/lib/supabase/server";
+import { TEAMS_FEATURE_DISABLED } from "@/lib/teams/feature-flag";
 
 const SUPER_ROLE_ID = "a0000000-0000-0000-0000-000000000000";
 
@@ -193,10 +194,10 @@ export default async function DashboardLayout({
     }
     const workspaceItems: { href: string; label: string }[] = [];
     if (isPp) {
-      workspaceItems.push(
-        { href: "/dashboard/pp-workspace", label: "Files workspace" },
-        { href: "/dashboard/pp", label: "Reporting teams" }
-      );
+      workspaceItems.push({ href: "/dashboard/pp-workspace", label: "Files workspace" });
+      if (!TEAMS_FEATURE_DISABLED) {
+        workspaceItems.push({ href: "/dashboard/pp", label: "Reporting teams" });
+      }
       if (showPpTeamLeaveNav) {
         workspaceItems.push({ href: "/dashboard/pp/leaves", label: "Team leave requests" });
       }

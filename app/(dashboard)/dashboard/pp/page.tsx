@@ -3,8 +3,10 @@ import { getDataClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import { canAccessPpTeamLeaveRequests, hasReportingPortalRole } from "@/lib/pp/auth";
+import { TEAMS_FEATURE_DISABLED } from "@/lib/teams/feature-flag";
 
 export default async function PostProcessorDashboardPage() {
+  if (TEAMS_FEATURE_DISABLED) redirect("/dashboard");
   const userClient = await createServerSupabaseClient();
   const {
     data: { session },

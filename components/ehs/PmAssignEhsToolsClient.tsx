@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { SearchableSelect, type SearchableOption } from "@/components/ui/SearchableSelect";
-import { getEhsToolType, type EhsWearRole } from "@/lib/assets/ehs-tool-catalog";
+import { getEhsToolType } from "@/lib/assets/ehs-tool-catalog";
 
 type EhsAsset = {
   id: string;
@@ -14,11 +14,10 @@ type EhsAsset = {
   en_code: string | null;
 };
 
-type DtTeam = {
-  teamId: string;
-  teamName: string;
-  dt: { id: string; full_name: string };
-  driver: { id: string; full_name: string } | null;
+type DriverOption = {
+  id: string;
+  full_name: string;
+  region_id?: string | null;
 };
 
 function toolTypeKey(a: Pick<EhsAsset, "ehs_tool_type">): string {
@@ -26,44 +25,30 @@ function toolTypeKey(a: Pick<EhsAsset, "ehs_tool_type">): string {
   return def?.label ?? a.ehs_tool_type ?? "Other";
 }
 
-export function PmAssignEhsToolsClient({ assets, dtTeams }: { assets: EhsAsset[]; dtTeams: DtTeam[] }) {
+export function PmAssignEhsToolsClient({ assets, drivers }: { assets: EhsAsset[]; drivers: DriverOption[] }) {
   const router = useRouter();
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [teamId, setTeamId] = useState("");
-  const [assignWearRole, setAssignWearRole] = useState<EhsWearRole | "">("");
+  const [employeeId, setEmployeeId] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
 
-  const teamOptions: SearchableOption[] = useMemo(
-    () =>
-      dtTeams.map((t) => ({
-        id: t.teamId,
-        label: `${t.teamName} — DT: ${t.dt.full_name}${t.driver ? ` · Driver: ${t.driver.full_name}` : ""}`,
-      })),
-    [dtTeams]
+  const driverOptions: SearchableOption[] = useMemo(
+    () => drivers.map((d) => ({ id: d.id, label: d.full_name })),
+    [drivers]
   );
 
-  const selectedTeam = teamId ? dtTeams.find((t) => t.teamId === teamId) : undefined;
-  const needsDriver = assignWearRole === "driver_rigger";
+  const selectedDriver = employeeId ? drivers.find((d) => d.id === employeeId) : undefined;
 
   async function submit() {
     setError("");
     setMessage("");
-    if (!selectedTeam) {
-      setError("Select a team (DT).");
-      return;
-    }
-    if (!assignWearRole) {
-      setError("Select whether these tools are for DT or Driver/Rigger.");
+    if (!selectedDriver) {
+      setError("Select a Driver/Rigger.");
       return;
     }
     if (selected.size === 0) {
       setError("Select at least one EHS tool.");
-      return;
-    }
-    if (needsDriver && !selectedTeam.driver) {
-      setError("Driver/Rigger assignment requires a driver on this team.");
       return;
     }
     setSubmitting(true);
@@ -73,9 +58,7 @@ export function PmAssignEhsToolsClient({ assets, dtTeams }: { assets: EhsAsset[]
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           asset_ids: [...selected],
-          dt_employee_id: selectedTeam.dt.id,
-          driver_employee_id: selectedTeam.driver?.id ?? null,
-          assign_wear_role: assignWearRole,
+          employee_id: selectedDriver.id,
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -101,18 +84,14 @@ export function PmAssignEhsToolsClient({ assets, dtTeams }: { assets: EhsAsset[]
 
   return (
     <div className="space-y-6">
-      <SearchableSelect options={teamOptions} value={teamId} onChange={setTeamId} placeholder="Select team / DT…" />
       <div>
-        <label className="mb-1 block text-sm font-medium text-zinc-700">Assign as</label>
-        <select
-          value={assignWearRole}
-          onChange={(e) => setAssignWearRole(e.target.value as EhsWearRole | "")}
-          className="w-full rounded border border-zinc-300 bg-white px-3 py-2 text-sm"
-        >
-          <option value="">Select wear context…</option>
-          <option value="dt">DT wear</option>
-          <option value="driver_rigger">Driver / Rigger wear</option>
-        </select>
+        <label className="mb-1 block text-sm font-medium text-zinc-700">Assign to Driver/Rigger</label>
+        <SearchableSelect
+          options={driverOptions}
+          value={employeeId}
+          onChange={setEmployeeId}
+          placeholder="Select Driver/Rigger…"
+        />
       </div>
       <div className="overflow-x-auto rounded-xl border border-zinc-200">
         <table className="min-w-full text-sm">
@@ -144,7 +123,7 @@ export function PmAssignEhsToolsClient({ assets, dtTeams }: { assets: EhsAsset[]
         onClick={submit}
         className="rounded bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-50"
       >
-        {submitting ? "Assigning…" : `Assign ${selected.size} tool(s)`}
+        {submitting ? "Assigning…" : `Assign ${selected.size} tool(s) to Driver/Rigger`}
       </button>
     </div>
   );
