@@ -3,6 +3,10 @@
     {
       "path": "/api/cron/duty-reminders",
       "schedule": "*/15 * * * *"
+    },
+    {
+      "path": "/api/cron/start-duty-reminders",
+      "schedule": "*/15 * * * *"
     }
   ]
 }
