@@ -206,13 +206,19 @@ export default async function DashboardPage() {
       {isDriverRigger && (vehicles?.length ?? 0) > 0 ? (
         <section
           className={`rounded-2xl border p-4 sm:p-5 ${
-            anyDutyOpen ? "border-amber-300 bg-amber-50/90" : "border-emerald-200 bg-emerald-50/80"
+            anyDutyOpen ? "border-amber-300 bg-amber-50/90" : "border-rose-300 bg-rose-50/90"
           }`}
         >
           <p className="text-sm font-semibold text-zinc-900">Vehicle duty — Driver/Rigger</p>
+          {!anyDutyOpen ? (
+            <p className="mt-2 rounded-xl border border-rose-200 bg-white/80 px-3 py-2 text-sm font-medium text-rose-900">
+              You haven&apos;t started duty. If you are working, please start your duty now (submit start odometer
+              photos).
+            </p>
+          ) : null}
           <p className="mt-1 text-sm text-zinc-700">
             Start duty by submitting start odometer photos. End duty by submitting end odometer photos. Night shifts can
-            start one day and end the next.
+            start one day and end the next (DTE shifts are 12 hours from when you start).
           </p>
           <ul className="mt-3 space-y-2 text-sm">
             {driverDutyRows.map((v) => (
