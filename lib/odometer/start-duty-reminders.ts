@@ -95,8 +95,8 @@ export function getActiveStartDutyWindow(
   return null;
 }
 
-function driverDashboardLink(): string {
-  return `${getEmployeePortalBaseUrl()}/dashboard`;
+function driverDutyLink(): string {
+  return `${getEmployeePortalBaseUrl()}/dashboard?vehicle_duty=1`;
 }
 
 async function claimWindow(
@@ -251,7 +251,7 @@ export async function runStartDutyReminders(now: Date = new Date()): Promise<Sta
           title,
           body,
           category: "vehicle_duty_start_reminder",
-          link: driverDashboardLink(),
+          link: driverDutyLink(),
           meta: {
             employeeId,
             windowKey: active.windowKey,

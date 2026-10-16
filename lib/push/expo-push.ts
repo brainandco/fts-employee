@@ -34,7 +34,7 @@ export async function sendExpoPushToUser(
   for (let i = 0; i < messages.length; i += 100) {
     const chunk = messages.slice(i, i + 100);
     try {
-      await fetch("https://exp.host/--/api/v2/push/send", {
+      const res = await fetch("https://exp.host/--/api/v2/push/send", {
         method: "POST",
         headers: {
           Accept: "application/json",
@@ -43,8 +43,26 @@ export async function sendExpoPushToUser(
         },
         body: JSON.stringify(chunk),
       });
-    } catch {
-      /* non-fatal */
+      const json = (await res.json().catch(() => null)) as {
+        data?: Array<{ status?: string; message?: string; details?: { error?: string } }>;
+      } | null;
+      const tickets = json?.data ?? [];
+      for (const t of tickets) {
+        if (t?.status === "error") {
+          console.error(
+            "[expo-push]",
+            t.message ?? "push failed",
+            t.details?.error ?? "",
+            "user=",
+            userId
+          );
+        }
+      }
+      if (!res.ok) {
+        console.error("[expo-push] HTTP", res.status, "user=", userId);
+      }
+    } catch (e) {
+      console.error("[expo-push] send failed", userId, e);
     }
   }
 }
