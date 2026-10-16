@@ -32,8 +32,9 @@ function adminOdometerLink(): string {
   return base ? `${base}/vehicles/odometer` : "/vehicles/odometer";
 }
 
-function driverDashboardLink(): string {
-  return `${getEmployeePortalBaseUrl()}/dashboard`;
+function driverDutyLink(): string {
+  // Include "vehicle" so mobile deep-links open My vehicles (end/start duty).
+  return `${getEmployeePortalBaseUrl()}/dashboard?vehicle_duty=1`;
 }
 
 function remainingHoursLabel(milestone: DutyReminderMilestone): number {
@@ -125,7 +126,7 @@ async function notifyOnDutyUser(
       title,
       body,
       category: "vehicle_duty_reminder",
-      link: driverDashboardLink(),
+      link: driverDutyLink(),
       meta,
     },
   ]);
